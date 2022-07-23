@@ -1,5 +1,4 @@
-#![allow(incomplete_features)]
-#![feature(specialization)]
+#![doc = include_str!("../README.md")]
 
 pub mod builder;
 pub mod component;
