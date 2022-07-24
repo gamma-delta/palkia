@@ -42,8 +42,8 @@ fn main() -> crossterm::Result<()> {
     loop {
         *world.get_resource::<TerminalGfx>().unwrap() = TerminalGfx::default();
 
-        world.dispatch_to_all(EvStepAI::new());
-        world.dispatch_to_all(EvRender::new());
+        world.dispatch_to_all(MsgStepAI::new());
+        world.dispatch_to_all(MsgRender::new());
         world.finalize();
 
         stdout().queue(Clear(ClearType::All))?;
@@ -78,13 +78,13 @@ fn main() -> crossterm::Result<()> {
 struct Positioned(Coord);
 
 impl Positioned {
-    fn on_render(&self, mut event: EvRender, _: Entity, _: &WorldAccess) -> EvRender {
+    fn on_render(&self, mut event: MsgRender, _: Entity, _: &WorldAccess) -> MsgRender {
         debug_assert_eq!(event.position, None);
         event.position = Some(self.0);
         event
     }
 
-    fn on_step_ai(&mut self, event: EvStepAI, _: Entity, _: &WorldAccess) -> EvStepAI {
+    fn on_step_ai(&mut self, event: MsgStepAI, _: Entity, _: &WorldAccess) -> MsgStepAI {
         let target = self.0.to_icoord() + event.move_dir.deltas();
         if let Ok(target) = target.try_into() {
             self.0 = target;
@@ -94,13 +94,20 @@ impl Positioned {
 }
 
 impl Component for Positioned {
-    fn register_listeners(builder: ListenerBuilder<Self>) -> ListenerBuilder<Self>
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
     where
         Self: Sized,
     {
         builder
-            .listen_write(Self::on_step_ai)
-            .listen_read(Self::on_render)
+            .handle_write(Self::on_step_ai)
+            .handle_read(Self::on_render)
+    }
+
+    fn priority() -> u64
+    where
+        Self: Sized,
+    {
+        0
     }
 }
 
@@ -108,7 +115,7 @@ impl Component for Positioned {
 struct Renderable(char, Color);
 
 impl Renderable {
-    fn on_render(&self, event: EvRender, _: Entity, access: &WorldAccess) -> EvRender {
+    fn on_render(&self, event: MsgRender, _: Entity, access: &WorldAccess) -> MsgRender {
         if let Some(pos) = event.position {
             let mut display = access.write_resource::<TerminalGfx>().unwrap();
             display.0.insert(pos, (self.0, self.1));
@@ -118,11 +125,18 @@ impl Renderable {
 }
 
 impl Component for Renderable {
-    fn register_listeners(builder: ListenerBuilder<Self>) -> ListenerBuilder<Self>
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
     where
         Self: Sized,
     {
-        builder.listen_read(Self::on_render)
+        builder.handle_read(Self::on_render)
+    }
+
+    fn priority() -> u64
+    where
+        Self: Sized,
+    {
+        200
     }
 }
 
@@ -131,29 +145,36 @@ impl Component for Renderable {
 struct AiRandomWanderer;
 
 impl Component for AiRandomWanderer {
-    fn register_listeners(builder: ListenerBuilder<Self>) -> ListenerBuilder<Self>
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
     where
         Self: Sized,
     {
         // you can use closures too!
-        builder.listen_read(
-            |_: &Self, mut event: EvStepAI, _: Entity, _: &WorldAccess| {
+        builder.handle_read(
+            |_: &Self, mut event: MsgStepAI, _: Entity, _: &WorldAccess| {
                 let dir = Direction9::DIRECTIONS[fastrand::usize(0..9)];
                 event.move_dir = dir;
                 event
             },
         )
     }
+
+    fn priority() -> u64
+    where
+        Self: Sized,
+    {
+        100
+    }
 }
 
 struct AiFollower(Entity);
 impl Component for AiFollower {
-    fn register_listeners(builder: ListenerBuilder<Self>) -> ListenerBuilder<Self>
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
     where
         Self: Sized,
     {
-        builder.listen_read(
-            |this: &Self, mut event: EvStepAI, e: Entity, access: &WorldAccess| {
+        builder.handle_read(
+            |this: &Self, mut event: MsgStepAI, e: Entity, access: &WorldAccess| {
                 let here = access.query::<&Positioned>(e);
                 let target = access.query::<&Positioned>(this.0);
                 if let (Some(here_pos), Some(target_pos)) = (here, target) {
@@ -165,14 +186,21 @@ impl Component for AiFollower {
             },
         )
     }
+
+    fn priority() -> u64
+    where
+        Self: Sized,
+    {
+        101
+    }
 }
 
 #[derive(Debug, Clone)]
-struct EvStepAI {
+struct MsgStepAI {
     move_dir: Direction9,
 }
 
-impl EvStepAI {
+impl MsgStepAI {
     fn new() -> Self {
         Self {
             move_dir: Direction9::Center,
@@ -180,20 +208,20 @@ impl EvStepAI {
     }
 }
 
-impl Event for EvStepAI {}
+impl Message for MsgStepAI {}
 
 #[derive(Debug, Clone)]
-struct EvRender {
+struct MsgRender {
     position: Option<Coord>,
 }
 
-impl EvRender {
+impl MsgRender {
     fn new() -> Self {
         Self { position: None }
     }
 }
 
-impl Event for EvRender {}
+impl Message for MsgRender {}
 
 // Resources
 

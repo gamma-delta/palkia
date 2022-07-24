@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
-use crate::entities::ComponentEntry;
-use crate::loop_panic;
+use crate::entities::EntityAssoc;
 use crate::prelude::{Component, Entity};
+use crate::{loop_panic, TypeIdWrapper};
 
 /// Trait for things that can be used to access components.
 ///
@@ -24,41 +24,38 @@ use crate::prelude::{Component, Entity};
 pub trait Query<'c> {
     type Response: 'c;
     #[doc(hidden)]
-    fn query(entity: Entity, components: &'c [ComponentEntry]) -> Option<Self::Response>;
+    fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response>;
 }
 
 impl<'c, C: Component> Query<'c> for &'c C {
     type Response = ReadQueryResponse<'c, C>;
-    fn query(entity: Entity, components: &'c [ComponentEntry]) -> Option<Self::Response> {
-        components.iter().find_map(|cmp| {
-            let lock = cmp.try_read().unwrap_or_else(|_| loop_panic(entity));
-            if lock.is::<C>() {
-                Some(ReadQueryResponse(lock, PhantomData))
-            } else {
-                None
-            }
-        })
+    fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
+        components
+            .components()
+            .get(&TypeIdWrapper::of::<C>())
+            .map(|(_, comp)| {
+                let lock = comp.try_read().unwrap_or_else(|_| loop_panic(entity));
+                ReadQueryResponse(lock, PhantomData)
+            })
     }
 }
 
 impl<'c, C: Component> Query<'c> for &'c mut C {
     type Response = WriteQueryResponse<'c, C>;
-    fn query(entity: Entity, components: &'c [ComponentEntry]) -> Option<Self::Response> {
-        components.iter().find_map(|cmp| {
-            let lock = cmp.try_read().unwrap_or_else(|_| loop_panic(entity));
-            if lock.is::<C>() {
-                let lock = cmp.try_write().unwrap_or_else(|_| loop_panic(entity));
-                Some(WriteQueryResponse(lock, PhantomData))
-            } else {
-                None
-            }
-        })
+    fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
+        components
+            .components()
+            .get(&TypeIdWrapper::of::<C>())
+            .map(|(_, comp)| {
+                let lock = comp.try_write().unwrap_or_else(|_| loop_panic(entity));
+                WriteQueryResponse(lock, PhantomData)
+            })
     }
 }
 
 impl<'c, Q: Query<'c>> Query<'c> for Option<Q> {
     type Response = Option<Q::Response>;
-    fn query(entity: Entity, components: &'c [ComponentEntry]) -> Option<Self::Response> {
+    fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
         Some(Q::query(entity, components))
     }
 }
@@ -71,7 +68,7 @@ macro_rules! impl_query {
         {
             type Response = ($(<$subquery as Query<'c>>::Response,)*);
 
-            fn query(entity: Entity, components: &'c [ComponentEntry]) -> Option<Self::Response> {
+            fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
                 Some((
                     $($subquery::query(entity, components)?,)*
                 ))

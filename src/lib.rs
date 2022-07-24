@@ -1,9 +1,11 @@
 #![doc = include_str!("../README.md")]
 
+mod allocator;
 pub mod builder;
+mod callback;
 pub mod component;
 pub mod entities;
-pub mod events;
+pub mod messages;
 pub mod query;
 pub mod resource;
 pub mod world;
@@ -18,7 +20,6 @@ use prelude::Entity;
 #[derive(Clone, Copy)]
 struct TypeIdWrapper {
     tid: TypeId,
-    #[cfg(debug_assertions)]
     type_name: &'static str,
 }
 
@@ -34,7 +35,6 @@ impl TypeIdWrapper {
     pub fn of<T: 'static>() -> Self {
         Self {
             tid: TypeId::of::<T>(),
-            #[cfg(debug_assertions)]
             type_name: any::type_name::<T>(),
         }
     }
@@ -72,8 +72,6 @@ impl Debug for TypeIdWrapper {
 
         #[cfg(debug_assertions)]
         dbs.field(&self.type_name);
-        #[cfg(not(debug_assertions))]
-        dbs.field(&self.tid);
 
         dbs.finish()
     }
@@ -90,7 +88,6 @@ where
     fn type_id_wrapper(&self) -> TypeIdWrapper {
         TypeIdWrapper {
             tid: self.type_id(),
-            #[cfg(debug_assertions)]
             type_name: self.type_name(),
         }
     }
@@ -102,9 +99,9 @@ fn loop_panic(perpetrator: Entity) -> ! {
 
 pub mod prelude {
     pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
-    pub use crate::component::{Component, ListenerBuilder};
+    pub use crate::component::{Component, HandlerBuilder};
     pub use crate::entities::Entity;
-    pub use crate::events::{Event, EventListenerRead, EventListenerWrite};
+    pub use crate::messages::{Message, MsgHandlerRead, MsgHandlerWrite};
     pub use crate::query::Query;
     pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
     pub use crate::world::{World, WorldAccess};

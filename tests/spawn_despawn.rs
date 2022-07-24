@@ -11,7 +11,7 @@ fn spawn() {
     world.spawn().with(Rabbit::new()).build();
 
     for _ in 0..16 {
-        world.dispatch_to_all(EvReproduceMitosis);
+        world.dispatch_to_all(MsgReproduceMitosis);
         world.finalize();
     }
 
@@ -28,7 +28,7 @@ fn spawn_despawn() {
     world.spawn().with(Rabbit::new()).build();
 
     for _ in 0..16 {
-        world.dispatch_to_all(EvReproduceAndDie);
+        world.dispatch_to_all(MsgReproduceAndDie);
         world.finalize();
     }
 
@@ -54,10 +54,10 @@ impl Rabbit {
     /// Every rabbit duplicates itself.
     fn mitosis(
         &mut self,
-        event: EvReproduceMitosis,
+        event: MsgReproduceMitosis,
         _: Entity,
         access: &WorldAccess,
-    ) -> EvReproduceMitosis {
+    ) -> MsgReproduceMitosis {
         access.lazy_spawn().with(self.offspring()).build();
 
         event
@@ -65,10 +65,10 @@ impl Rabbit {
 
     fn reproduce_and_die(
         &mut self,
-        event: EvReproduceAndDie,
+        event: MsgReproduceAndDie,
         this: Entity,
         access: &WorldAccess,
-    ) -> EvReproduceAndDie {
+    ) -> MsgReproduceAndDie {
         // Make sure that interleaving birth and death works
         access.lazy_spawn().with(self.offspring()).build();
         access.lazy_despawn(this);
@@ -79,22 +79,29 @@ impl Rabbit {
 }
 
 impl Component for Rabbit {
-    fn register_listeners(builder: ListenerBuilder<Self>) -> ListenerBuilder<Self>
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
     where
         Self: Sized,
     {
         builder
-            .listen_write(Rabbit::mitosis)
-            .listen_write(Rabbit::reproduce_and_die)
+            .handle_write(Rabbit::mitosis)
+            .handle_write(Rabbit::reproduce_and_die)
+    }
+
+    fn priority() -> u64
+    where
+        Self: Sized,
+    {
+        0
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-struct EvReproduceMitosis;
+struct MsgReproduceMitosis;
 
-impl Event for EvReproduceMitosis {}
+impl Message for MsgReproduceMitosis {}
 
 #[derive(Debug, Clone, Copy)]
-struct EvReproduceAndDie;
+struct MsgReproduceAndDie;
 
-impl Event for EvReproduceAndDie {}
+impl Message for MsgReproduceAndDie {}

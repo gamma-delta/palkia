@@ -5,10 +5,11 @@ use std::sync::RwLock;
 
 use crossbeam::channel;
 
+use crate::allocator::EntityAllocator;
 use crate::builder::{ImmediateEntityBuilder, LazyEntityBuilder};
-use crate::component::{Component, ListenerBuilder};
-use crate::entities::{Entity, EntityAllocator, EntityAssoc};
-use crate::events::{Event, EventListener};
+use crate::component::{Component, HandlerBuilder};
+use crate::entities::{Entity, EntityAssoc};
+use crate::messages::{Message, MsgHandlerInner};
 use crate::prelude::Query;
 use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
 use crate::{loop_panic, ToTypeIdWrapper, TypeIdWrapper};
@@ -17,7 +18,7 @@ pub struct World {
     /// Each entity maps type IDs to their components
     pub(crate) entities: EntityAllocator<EntityAssoc>,
     /// Maps event types to, maps component types to the EventHandler.
-    event_table: BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, EventListener>>,
+    msg_table: BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, MsgHandlerInner>>,
     pub(crate) known_component_types: BTreeSet<TypeIdWrapper>,
 
     resources: ResourceMap,
@@ -34,7 +35,7 @@ impl World {
 
         Self {
             entities: EntityAllocator::new(),
-            event_table: BTreeMap::new(),
+            msg_table: BTreeMap::new(),
             resources: ResourceMap::new(),
             known_component_types: BTreeSet::new(),
             lazy_sender: tx,
@@ -47,10 +48,10 @@ impl World {
     pub fn register_component<C: Component>(&mut self) {
         self.known_component_types.insert(TypeIdWrapper::of::<C>());
 
-        let builder = ListenerBuilder::<C>::new();
-        let builder = C::register_listeners(builder);
-        for (ev_type, handler) in builder.listeners {
-            self.event_table
+        let builder = HandlerBuilder::<C>::new();
+        let builder = C::register_handlers(builder);
+        for (ev_type, handler) in builder.handlers {
+            self.msg_table
                 .entry(ev_type)
                 .or_default()
                 .insert(TypeIdWrapper::of::<C>(), handler);
@@ -65,33 +66,38 @@ impl World {
 
     /// Spawn a new empty entity.
     pub fn spawn_empty(&mut self) -> Entity {
-        self.entities.insert(Vec::new())
+        self.entities.insert(EntityAssoc::new())
     }
 
     /// As a convenience method, spawn an entity with a single component.
     pub fn spawn_1<C: Component>(&mut self, component: C) -> Entity {
-        let comps = vec![RwLock::new(Box::new(component) as _)];
-        self.entities.insert(comps)
+        let mut assoc = EntityAssoc::new();
+        assoc.insert(component);
+        self.entities.insert(assoc)
     }
 
-    /// Dispatch an event to the given entity.
+    /// Dispatch an event to the given entity and return the modified event.
     ///
-    /// Return the modified event.
-    pub fn dispatch<E: Event>(&self, target: Entity, event: E) -> E {
+    /// Panics if the entity is dead.
+    pub fn dispatch<E: Message>(&self, target: Entity, event: E) -> E {
         dispatch_inner(&WorldAccess::new(self), target, event)
     }
 
     /// Dispatch an event to all entities, cloning it for each entity.
-    pub fn dispatch_to_all<E: Event + Clone>(&self, event: E) {
+    pub fn dispatch_to_all<E: Message + Clone>(&self, event: E) {
         let entities = self.entities.iter().map(|(e, _)| e).collect::<Vec<_>>();
         for e in entities {
             self.dispatch(e, event.clone());
         }
     }
 
-    /// Query the given entity for the given elements. If the entity is dead, returns `None`.
+    /// Query the given entity for the given elements.
+    ///
+    /// Panics if the entity is dead.
     pub fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
-        let comps = self.entities.get(interrogatee)?;
+        let comps = self.entities.get(interrogatee).unwrap_or_else(|| {
+            panic!("{:?} could not be queried because it is dead", interrogatee)
+        });
         Q::query(interrogatee, comps)
     }
 
@@ -100,9 +106,42 @@ impl World {
         self.entities.get(e).is_some()
     }
 
-    /// Get the number of components on the given entity, or `None` if it's dead.
-    pub fn len_of(&self, e: Entity) -> Option<usize> {
-        self.entities.get(e).map(Vec::len)
+    /// Get the number of components on the given entity.
+    ///
+    /// Panics if the entity is dead.
+    pub fn len_of(&self, e: Entity) -> usize {
+        self.entities
+            .get(e)
+            .unwrap_or_else(|| panic!("cannot get len of {:?} because it is dead", e))
+            .len()
+    }
+
+    /// Adds a component to the given entity, returning the old value of that type if any.
+    ///
+    /// Panics if the entity is dead.
+    pub fn insert_at<C: Component>(&mut self, e: Entity, component: C) -> Option<C> {
+        let comps = self.entities.get_mut(e).unwrap_or_else(|| {
+            panic!(
+                "cannot insert component of type {:?} at {:?} because it is dead",
+                component.type_name(),
+                e
+            )
+        });
+        comps.insert(component)
+    }
+
+    /// Remove a component from the given entity, returning the old value of that type if any.
+    ///
+    /// Panics if the entity is dead.
+    pub fn remove_at<C: Component>(&mut self, e: Entity, component: C) -> Option<C> {
+        let comps = self.entities.get_mut(e).unwrap_or_else(|| {
+            panic!(
+                "cannot remove component of type {:?} at {:?} because it is dead",
+                component.type_name(),
+                e
+            )
+        });
+        comps.remove()
     }
 
     /// Insert a resource into the world, returning the old value if it existed.
@@ -134,6 +173,11 @@ impl World {
     /// With ownership, get direct mutable access to the given resource.
     pub fn get_resource<R: Resource>(&mut self) -> Option<&mut R> {
         self.resources.get()
+    }
+
+    /// With ownership, remove and return the given resource
+    pub fn remove_resource<R: Resource>(&mut self) -> Option<R> {
+        self.resources.remove()
     }
 
     /// Get the number of entities in the world.
@@ -180,7 +224,7 @@ impl<'w> WorldAccess<'w> {
     }
 
     /// Dispatch an event to the given entity.
-    pub fn dispatch<E: Event>(&self, target: Entity, event: E) -> E {
+    pub fn dispatch<E: Message>(&self, target: Entity, event: E) -> E {
         dispatch_inner(self, target, event)
     }
 
@@ -206,6 +250,23 @@ impl<'w> WorldAccess<'w> {
         self.queue_update(LazyUpdate::DespawnEntity(entity));
     }
 
+    /// Queue a new component to be added to the given entity when [`World::finalize`] is called.
+    pub fn lazy_insert_at<C: Component>(&self, target: Entity, comp: C) {
+        self.queue_update(LazyUpdate::ExtendEntity {
+            target,
+            priority: C::priority(),
+            comp: Box::new(comp),
+        });
+    }
+
+    /// Queue the removal of a component from the given entity when [`World::finalize`] is called.
+    pub fn lazy_remove_at<C: Component>(&self, target: Entity) {
+        self.queue_update(LazyUpdate::RemoveFromEntity(
+            target,
+            TypeIdWrapper::of::<C>(),
+        ));
+    }
+
     /// Query the given entity for the given elements. If the entity is dead, returns `None`.
     pub fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
         let comps = self.world.entities.get(interrogatee)?;
@@ -219,7 +280,7 @@ impl<'w> WorldAccess<'w> {
 
     /// Get the number of components on the given entity, or `None` if it's dead.
     pub fn len_of(&self, e: Entity) -> Option<usize> {
-        self.world.entities.get(e).map(Vec::len)
+        self.world.entities.get(e).map(EntityAssoc::len)
     }
 
     pub(crate) fn queue_update(&self, update: LazyUpdate) {
@@ -228,34 +289,55 @@ impl<'w> WorldAccess<'w> {
 }
 
 pub(crate) enum LazyUpdate {
-    SpawnEntity(Vec<Box<dyn Component>>, Entity),
+    SpawnEntity(EntityAssoc, Entity),
     DespawnEntity(Entity),
+    // extendity
+    ExtendEntity {
+        target: Entity,
+        priority: u64,
+        comp: Box<dyn Component>,
+    },
+    RemoveFromEntity(Entity, TypeIdWrapper),
 }
 
 impl LazyUpdate {
     fn apply(self, world: &mut World) {
         match self {
             LazyUpdate::SpawnEntity(comps, expect) => {
-                let out = comps
-                    .into_iter()
-                    .map(|comp| {
-                        if !world
-                            .known_component_types
-                            .contains(&(*comp).type_id_wrapper())
-                        {
-                            panic!(
-                                "tried to insert a component with unregistered type {}",
-                                (*comp).type_name()
-                            )
-                        }
-                        RwLock::new(comp)
-                    })
-                    .collect();
-                let new = world.entities.insert_increasing(out);
+                let new = world.entities.insert_increasing(comps);
                 debug_assert_eq!(new, expect);
             }
             LazyUpdate::DespawnEntity(entity) => {
-                world.entities.remove(entity);
+                let prev = world.entities.remove(entity);
+                if prev.is_none() {
+                    panic!(
+                        "cannot lazy despawn {:?} because it was already removed",
+                        entity
+                    );
+                }
+            }
+            LazyUpdate::ExtendEntity {
+                target,
+                priority,
+                comp,
+            } => {
+                let assoc = world.entities.get_mut(target).unwrap_or_else(|| {
+                    panic!(
+                        "cannoy lazy add {:?} to {:?} because it is dead",
+                        (*comp).type_name(),
+                        target
+                    )
+                });
+                assoc.insert_boxed(comp, priority);
+            }
+            LazyUpdate::RemoveFromEntity(target, tid) => {
+                let assoc = world.entities.get_mut(target).unwrap_or_else(|| {
+                    panic!(
+                        "cannoy lazy remove {:?} from {:?} because it is dead",
+                        tid.type_name, target
+                    )
+                });
+                assoc.remove_from_tid(tid);
             }
         }
     }
@@ -264,18 +346,34 @@ impl LazyUpdate {
 impl Debug for LazyUpdate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::SpawnEntity(arg0, arg1) => f
-                .debug_tuple("SpawnEntity")
+            LazyUpdate::SpawnEntity(arg0, arg1) => f
+                .debug_tuple("LazyUpdate::SpawnEntity")
                 .field(&format_args!("Vec(len {})", arg0.len()))
                 .field(arg1)
                 .finish(),
-            Self::DespawnEntity(arg0) => f.debug_tuple("DespawnEntity").field(arg0).finish(),
+            LazyUpdate::DespawnEntity(arg0) => f
+                .debug_tuple("LazyUpdate::DespawnEntity")
+                .field(arg0)
+                .finish(),
+            LazyUpdate::ExtendEntity {
+                target, priority, ..
+            } => f
+                .debug_struct("LazyUpdate::ExtendEntity")
+                .field("entity", target)
+                .field("priority", priority)
+                .field("comp", &'_')
+                .finish(),
+            LazyUpdate::RemoveFromEntity(entity, tid) => f
+                .debug_tuple("LazyUpdate::RemoveFromEntity")
+                .field(entity)
+                .field(&tid.type_name)
+                .finish(),
         }
     }
 }
 
-fn dispatch_inner<E: Event>(access: &WorldAccess, target: Entity, mut event: E) -> E {
-    let event_handlers = match access.world.event_table.get(&TypeIdWrapper::of::<E>()) {
+fn dispatch_inner<E: Message>(access: &WorldAccess, target: Entity, mut event: E) -> E {
+    let event_handlers = match access.world.msg_table.get(&TypeIdWrapper::of::<E>()) {
         Some(it) => it,
         None => {
             // i've never met this event type in my life
@@ -289,8 +387,8 @@ fn dispatch_inner<E: Event>(access: &WorldAccess, target: Entity, mut event: E) 
         let tid = (**lock).type_id_wrapper();
         if let Some(handler) = event_handlers.get(&tid) {
             let event2 = match handler {
-                EventListener::Read(handler) => handler(&**lock, Box::new(event), target, access),
-                EventListener::Write(handler) => {
+                MsgHandlerInner::Read(handler) => handler(&**lock, Box::new(event), target, access),
+                MsgHandlerInner::Write(handler) => {
                     drop(lock);
                     let mut lock = comp.try_write().unwrap_or_else(|_| loop_panic(target));
                     handler(&mut **lock, Box::new(event), target, access)

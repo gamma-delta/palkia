@@ -34,6 +34,17 @@ impl ResourceMap {
             .map(|res| res.downcast_mut().unwrap())
     }
 
+    /// With a mutable reference, get a value from the map directly.
+    ///
+    /// If the value is poisoned, silently return `None`.
+    pub fn remove<T: Resource>(&mut self) -> Option<T> {
+        let resource = self.map.remove(&TypeIdWrapper::of::<T>())?;
+        match resource.into_inner() {
+            Ok(it) => Some(*it.downcast().unwrap()),
+            Err(_) => None,
+        }
+    }
+
     pub fn read<T: Resource>(&self) -> Result<ReadResource<'_, T>, ResourceLookupError> {
         let resource = match self.map.get(&TypeIdWrapper::of::<T>()) {
             Some(it) => it,
