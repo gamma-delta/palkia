@@ -8,7 +8,7 @@ fn spawn() {
 
     world.register_component::<Rabbit>();
 
-    world.spawn().with(Rabbit::new()).build();
+    world.spawn().with(Rabbit).build();
 
     for _ in 0..16 {
         world.dispatch_to_all(MsgReproduceMitosis);
@@ -25,7 +25,7 @@ fn spawn_despawn() {
 
     world.register_component::<Rabbit>();
 
-    world.spawn().with(Rabbit::new()).build();
+    world.spawn().with(Rabbit).build();
 
     for _ in 0..16 {
         world.dispatch_to_all(MsgReproduceAndDie);
@@ -36,43 +36,31 @@ fn spawn_despawn() {
     assert_eq!(world.len(), 2usize.pow(16))
 }
 
-struct Rabbit {
-    generation: u32,
-}
+struct Rabbit;
 
 impl Rabbit {
-    fn new() -> Self {
-        Self { generation: 0 }
-    }
-
-    fn offspring(&self) -> Self {
-        Self {
-            generation: self.generation + 1,
-        }
-    }
-
     /// Every rabbit duplicates itself.
     fn mitosis(
-        &mut self,
+        &self,
         event: MsgReproduceMitosis,
         _: Entity,
-        access: &WorldAccess,
+        access: &ListenerWorldAccess,
     ) -> MsgReproduceMitosis {
-        access.lazy_spawn().with(self.offspring()).build();
+        access.lazy_spawn().with(Rabbit).build();
 
         event
     }
 
     fn reproduce_and_die(
-        &mut self,
+        &self,
         event: MsgReproduceAndDie,
         this: Entity,
-        access: &WorldAccess,
+        access: &ListenerWorldAccess,
     ) -> MsgReproduceAndDie {
         // Make sure that interleaving birth and death works
-        access.lazy_spawn().with(self.offspring()).build();
+        access.lazy_spawn().with(Rabbit).build();
         access.lazy_despawn(this);
-        access.lazy_spawn().with(self.offspring()).build();
+        access.lazy_spawn().with(Rabbit).build();
 
         event
     }
@@ -84,15 +72,8 @@ impl Component for Rabbit {
         Self: Sized,
     {
         builder
-            .handle_write(Rabbit::mitosis)
-            .handle_write(Rabbit::reproduce_and_die)
-    }
-
-    fn priority() -> u64
-    where
-        Self: Sized,
-    {
-        0
+            .handle_read(Rabbit::mitosis)
+            .handle_read(Rabbit::reproduce_and_die)
     }
 }
 

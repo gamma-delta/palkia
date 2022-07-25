@@ -78,13 +78,13 @@ fn main() -> crossterm::Result<()> {
 struct Positioned(Coord);
 
 impl Positioned {
-    fn on_render(&self, mut event: MsgRender, _: Entity, _: &WorldAccess) -> MsgRender {
+    fn on_render(&self, mut event: MsgRender, _: Entity, _: &ListenerWorldAccess) -> MsgRender {
         debug_assert_eq!(event.position, None);
         event.position = Some(self.0);
         event
     }
 
-    fn on_step_ai(&mut self, event: MsgStepAI, _: Entity, _: &WorldAccess) -> MsgStepAI {
+    fn on_step_ai(&mut self, event: MsgStepAI, _: Entity, _: &ListenerWorldAccess) -> MsgStepAI {
         let target = self.0.to_icoord() + event.move_dir.deltas();
         if let Ok(target) = target.try_into() {
             self.0 = target;
@@ -102,20 +102,13 @@ impl Component for Positioned {
             .handle_write(Self::on_step_ai)
             .handle_read(Self::on_render)
     }
-
-    fn priority() -> u64
-    where
-        Self: Sized,
-    {
-        0
-    }
 }
 
 #[derive(Clone)]
 struct Renderable(char, Color);
 
 impl Renderable {
-    fn on_render(&self, event: MsgRender, _: Entity, access: &WorldAccess) -> MsgRender {
+    fn on_render(&self, event: MsgRender, _: Entity, access: &ListenerWorldAccess) -> MsgRender {
         if let Some(pos) = event.position {
             let mut display = access.write_resource::<TerminalGfx>().unwrap();
             display.0.insert(pos, (self.0, self.1));
@@ -131,13 +124,6 @@ impl Component for Renderable {
     {
         builder.handle_read(Self::on_render)
     }
-
-    fn priority() -> u64
-    where
-        Self: Sized,
-    {
-        200
-    }
 }
 
 // AI Components
@@ -151,19 +137,12 @@ impl Component for AiRandomWanderer {
     {
         // you can use closures too!
         builder.handle_read(
-            |_: &Self, mut event: MsgStepAI, _: Entity, _: &WorldAccess| {
+            |_: &Self, mut event: MsgStepAI, _: Entity, _: &ListenerWorldAccess| {
                 let dir = Direction9::DIRECTIONS[fastrand::usize(0..9)];
                 event.move_dir = dir;
                 event
             },
         )
-    }
-
-    fn priority() -> u64
-    where
-        Self: Sized,
-    {
-        100
     }
 }
 
@@ -174,7 +153,7 @@ impl Component for AiFollower {
         Self: Sized,
     {
         builder.handle_read(
-            |this: &Self, mut event: MsgStepAI, e: Entity, access: &WorldAccess| {
+            |this: &Self, mut event: MsgStepAI, e: Entity, access: &ListenerWorldAccess| {
                 let here = access.query::<&Positioned>(e);
                 let target = access.query::<&Positioned>(this.0);
                 if let (Some(here_pos), Some(target_pos)) = (here, target) {
@@ -185,13 +164,6 @@ impl Component for AiFollower {
                 event
             },
         )
-    }
-
-    fn priority() -> u64
-    where
-        Self: Sized,
-    {
-        101
     }
 }
 

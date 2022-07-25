@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
-use std::sync::RwLock;
 
 use crate::entities::EntityAssoc;
-use crate::prelude::{Component, Entity, World};
-use crate::world::{LazyUpdate, WorldAccess};
-use crate::{ToTypeIdWrapper, TypeIdWrapper};
+use crate::prelude::{Component, Entity, ListenerWorldAccess, World};
+use crate::world::LazyUpdate;
+use crate::TypeIdWrapper;
 
 /// Unified interface for [`ImmediateEntityBuilder`] and [`LazyEntityBuilder`], for ease of generic code.
 pub trait EntityBuilder: Sized {
@@ -60,7 +59,7 @@ impl EntityBuilderComponentTracker {
 pub struct ImmediateEntityBuilder<'w> {
     world: &'w mut World,
     pub entity: Entity,
-    assoc: EntityAssoc,
+    tracker: EntityBuilderComponentTracker,
 }
 
 impl<'w> ImmediateEntityBuilder<'w> {
@@ -68,24 +67,27 @@ impl<'w> ImmediateEntityBuilder<'w> {
         Self {
             world,
             entity,
-            assoc: EntityAssoc::new(),
+            tracker: EntityBuilderComponentTracker::default(),
         }
     }
 }
 
 impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
     fn insert<C: Component>(&mut self, component: C) -> Option<C> {
-        self.assoc.insert(component)
+        self.tracker.insert(component)
     }
 
     fn len(&self) -> usize {
-        self.assoc.components().len()
+        self.tracker.components.len()
     }
 
     fn build(self) -> Entity {
         let here = self.world.entities.get_mut(self.entity).unwrap();
         debug_assert_eq!(here.components().len(), 0); // doing this instead of is_empty so if it fails I can see the len
-        *here = self.assoc;
+        *here = EntityAssoc::new(self.tracker.components);
+
+        self.world.run_creation_callbacks(self.entity);
+
         self.entity
     }
 }
@@ -96,33 +98,35 @@ impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
 /// exist until whatever event handler it's being called from returns.
 #[must_use = "Does nothing until `.build()` is called."]
 pub struct LazyEntityBuilder<'a, 'w> {
-    accessor: &'a WorldAccess<'w>,
+    accessor: &'a ListenerWorldAccess<'w>,
     pub entity: Entity,
-    assoc: EntityAssoc,
+    tracker: EntityBuilderComponentTracker,
 }
 
 impl<'a, 'w> LazyEntityBuilder<'a, 'w> {
-    pub(crate) fn new(accessor: &'a WorldAccess<'w>, entity: Entity) -> Self {
+    pub(crate) fn new(accessor: &'a ListenerWorldAccess<'w>, entity: Entity) -> Self {
         Self {
             accessor,
             entity,
-            assoc: EntityAssoc::new(),
+            tracker: EntityBuilderComponentTracker::default(),
         }
     }
 }
 
 impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
     fn insert<C: Component>(&mut self, component: C) -> Option<C> {
-        self.assoc.insert(component)
+        self.tracker.insert(component)
     }
 
     fn len(&self) -> usize {
-        self.assoc.components().len()
+        self.tracker.components.len()
     }
 
     fn build(self) -> Entity {
-        self.accessor
-            .queue_update(LazyUpdate::SpawnEntity(self.assoc, self.entity));
+        self.accessor.queue_update(LazyUpdate::SpawnEntity(
+            self.tracker.components,
+            self.entity,
+        ));
         self.entity
     }
 }

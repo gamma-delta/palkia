@@ -12,8 +12,10 @@ keywords = ["gamedev"]
 categories = ["game-development"]
 
 [dependencies]
+ahash = "0.7.6"
 crossbeam = "0.8.1"
 downcast = "0.11.0"
+indexmap = "1.9.1"
 
 [dev-dependencies]
 aglet = { path = "../aglet", version = "0.1.0" }

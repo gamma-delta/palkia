@@ -101,8 +101,8 @@ pub mod prelude {
     pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
     pub use crate::component::{Component, HandlerBuilder};
     pub use crate::entities::Entity;
-    pub use crate::messages::{Message, MsgHandlerRead, MsgHandlerWrite};
+    pub use crate::messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite};
     pub use crate::query::Query;
     pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
-    pub use crate::world::{World, WorldAccess};
+    pub use crate::world::World;
 }

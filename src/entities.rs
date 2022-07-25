@@ -1,5 +1,6 @@
-use std::collections::BTreeMap;
 use std::sync::RwLock;
+
+use indexmap::IndexMap;
 
 use crate::prelude::Component;
 use crate::{ToTypeIdWrapper, TypeIdWrapper};
@@ -16,76 +17,41 @@ pub struct Entity {
 /// The internals of this are private and you really shouldn't be using it;
 /// I need to make it public for `Query` though.
 pub struct EntityAssoc {
-    components: BTreeMap<TypeIdWrapper, (u64, ComponentEntry)>,
-    /// This is stored in priority order, where 0 is highest priority
-    priorities: BTreeMap<u64, TypeIdWrapper>,
+    components: IndexMap<TypeIdWrapper, ComponentEntry, ahash::RandomState>,
 }
 
 impl EntityAssoc {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(components: impl IntoIterator<Item = Box<dyn Component>>) -> Self {
+        let components = components
+            .into_iter()
+            .map(|comp| ((*comp).type_id_wrapper(), RwLock::new(comp)))
+            .collect();
+        Self { components }
+    }
+
+    pub(crate) fn empty() -> Self {
         Self {
-            components: BTreeMap::new(),
-            priorities: BTreeMap::new(),
+            components: IndexMap::default(),
         }
-    }
-
-    pub(crate) fn insert<C: Component>(&mut self, component: C) -> Option<C> {
-        self.insert_boxed(Box::new(component) as _, C::priority())
-            .map(|comp| *comp.downcast().unwrap())
-    }
-
-    pub(crate) fn insert_boxed(
-        &mut self,
-        component: Box<dyn Component>,
-        priority: u64,
-    ) -> Option<Box<dyn Component>> {
-        let tid = (*component).type_id_wrapper();
-        if let Some(prev) = self.components.get_mut(&tid) {
-            let (_, prev) = std::mem::replace(prev, (priority, RwLock::new(component)));
-            let prev = prev.into_inner().unwrap();
-            Some(prev)
-        } else {
-            let prev_tid = self.priorities.insert(priority, tid);
-            if let Some(prev_tid) = prev_tid {
-                panic!("when inserting a component of type {:?}, found a component of type {:?} with the same priority ({})", 
-                    tid.type_name, prev_tid.type_name, priority);
-            }
-            let prev_comp = self
-                .components
-                .insert(tid, (priority, RwLock::new(component)));
-            debug_assert!(prev_comp.is_none());
-            None
-        }
-    }
-
-    pub(crate) fn remove<C: Component>(&mut self) -> Option<C> {
-        self.remove_from_tid(TypeIdWrapper::of::<C>())
-            .map(|comp| *comp.downcast().unwrap())
-    }
-
-    pub(crate) fn remove_from_tid(&mut self, tid: TypeIdWrapper) -> Option<Box<dyn Component>> {
-        if let Some((priority, prev)) = self.components.remove(&tid) {
-            let prev_tid = self.priorities.remove(&priority);
-            debug_assert!(prev_tid.is_some());
-            Some(prev.into_inner().unwrap())
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn components(&self) -> &BTreeMap<TypeIdWrapper, (u64, ComponentEntry)> {
-        &self.components
     }
 
     /// Iterate in increasing order of priority
     pub(crate) fn iter(&self) -> impl Iterator<Item = &ComponentEntry> + '_ {
-        self.priorities
-            .values()
-            .map(|tid| &self.components.get(tid).unwrap().1)
+        self.components.values()
+    }
+
+    pub(crate) fn into_iter(self) -> impl Iterator<Item = ComponentEntry> {
+        self.components.into_values()
     }
 
     pub(crate) fn len(&self) -> usize {
         self.components.len()
+    }
+
+    pub(crate) fn components(
+        &self,
+    ) -> &IndexMap<TypeIdWrapper, ComponentEntry, ahash::RandomState> {
+        &self.components
     }
 }
 

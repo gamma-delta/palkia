@@ -33,7 +33,7 @@ impl<'c, C: Component> Query<'c> for &'c C {
         components
             .components()
             .get(&TypeIdWrapper::of::<C>())
-            .map(|(_, comp)| {
+            .map(|comp| {
                 let lock = comp.try_read().unwrap_or_else(|_| loop_panic(entity));
                 ReadQueryResponse(lock, PhantomData)
             })
@@ -46,7 +46,7 @@ impl<'c, C: Component> Query<'c> for &'c mut C {
         components
             .components()
             .get(&TypeIdWrapper::of::<C>())
-            .map(|(_, comp)| {
+            .map(|comp| {
                 let lock = comp.try_write().unwrap_or_else(|_| loop_panic(entity));
                 WriteQueryResponse(lock, PhantomData)
             })
