@@ -3,7 +3,7 @@ use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 use crate::entities::EntityAssoc;
 use crate::prelude::{Component, Entity};
-use crate::{loop_panic, TypeIdWrapper};
+use crate::TypeIdWrapper;
 
 /// Trait for things that can be used to access components.
 ///
@@ -34,7 +34,12 @@ impl<'c, C: Component> Query<'c> for &'c C {
             .components()
             .get(&TypeIdWrapper::of::<C>())
             .map(|comp| {
-                let lock = comp.try_read().unwrap_or_else(|_| loop_panic(entity));
+                let lock = comp.try_read().unwrap_or_else(|_| {
+                    panic!(
+                        "{:?} had a component read queried when it was mutably borrowed",
+                        entity
+                    )
+                });
                 ReadQueryResponse(lock, PhantomData)
             })
     }
@@ -47,7 +52,12 @@ impl<'c, C: Component> Query<'c> for &'c mut C {
             .components()
             .get(&TypeIdWrapper::of::<C>())
             .map(|comp| {
-                let lock = comp.try_write().unwrap_or_else(|_| loop_panic(entity));
+                let lock = comp.try_write().unwrap_or_else(|_| {
+                    panic!(
+                        "{:?} had a component write queried when it was borrowed",
+                        entity
+                    )
+                });
                 WriteQueryResponse(lock, PhantomData)
             })
     }
@@ -97,6 +107,12 @@ impl<T: 'static> std::ops::Deref for ReadQueryResponse<'_, T> {
     fn deref(&self) -> &Self::Target {
         // SAFETY: we checked that this `is` of the wanted type in the query method.
         unsafe { self.0.downcast_ref().unwrap_unchecked() }
+    }
+}
+
+impl<T: 'static> AsRef<T> for ReadQueryResponse<'_, T> {
+    fn as_ref(&self) -> &T {
+        &*self
     }
 }
 
