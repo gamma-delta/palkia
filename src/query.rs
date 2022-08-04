@@ -30,36 +30,32 @@ pub trait Query<'c> {
 impl<'c, C: Component> Query<'c> for &'c C {
     type Response = ReadQueryResponse<'c, C>;
     fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
-        components
-            .components()
-            .get(&TypeIdWrapper::of::<C>())
-            .map(|comp| {
-                let lock = comp.try_read().unwrap_or_else(|_| {
-                    panic!(
-                        "{:?} had a component read queried when it was mutably borrowed",
-                        entity
-                    )
-                });
-                ReadQueryResponse(lock, PhantomData)
-            })
+        let tid = TypeIdWrapper::of::<C>();
+        components.components().get(&tid).map(|comp| {
+            let lock = comp.try_read().unwrap_or_else(|_| {
+                panic!(
+                    "{:?} had a component of type {} read queried when it was mutably borrowed",
+                    entity, tid.type_name,
+                )
+            });
+            ReadQueryResponse(lock, PhantomData)
+        })
     }
 }
 
 impl<'c, C: Component> Query<'c> for &'c mut C {
     type Response = WriteQueryResponse<'c, C>;
     fn query(entity: Entity, components: &'c EntityAssoc) -> Option<Self::Response> {
-        components
-            .components()
-            .get(&TypeIdWrapper::of::<C>())
-            .map(|comp| {
-                let lock = comp.try_write().unwrap_or_else(|_| {
-                    panic!(
-                        "{:?} had a component write queried when it was borrowed",
-                        entity
-                    )
-                });
-                WriteQueryResponse(lock, PhantomData)
-            })
+        let tid = TypeIdWrapper::of::<C>();
+        components.components().get(&tid).map(|comp| {
+            let lock = comp.try_write().unwrap_or_else(|_| {
+                panic!(
+                    "{:?} had a component of type {} write queried when it was borrowed",
+                    entity, tid.type_name
+                )
+            });
+            WriteQueryResponse(lock, PhantomData)
+        })
     }
 }
 

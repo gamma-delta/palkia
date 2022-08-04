@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Debug;
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use crossbeam::channel;
@@ -202,10 +201,9 @@ impl World {
     }
     pub(crate) fn run_removal_callback(&self, e: Entity, comps: EntityAssoc) {
         let access = CallbackWorldAccess::new(self);
-        for comp in comps.into_iter() {
-            let comp = comp.into_inner().unwrap();
-            let tid = (*comp).type_id_wrapper();
+        for (tid, comp) in comps.into_iter() {
             if let Some(cb) = self.callbacks.get(&tid).and_then(Callbacks::get_remove) {
+                let comp = comp.into_inner().unwrap();
                 cb(comp, e, &access);
             }
         }
@@ -254,52 +252,48 @@ impl LazyUpdate {
     }
 }
 
-impl Debug for LazyUpdate {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LazyUpdate::SpawnEntity(arg0, arg1) => f
-                .debug_tuple("LazyUpdate::SpawnEntity")
-                .field(&format_args!("Vec(len {})", arg0.len()))
-                .field(arg1)
-                .finish(),
-            LazyUpdate::DespawnEntity(arg0) => f
-                .debug_tuple("LazyUpdate::DespawnEntity")
-                .field(arg0)
-                .finish(),
-        }
-    }
-}
-
-pub(crate) fn dispatch_inner<E: Message>(
+pub(crate) fn dispatch_inner<M: Message>(
     access: &ListenerWorldAccess,
     target: Entity,
-    mut event: E,
-) -> E {
-    let event_handlers = match access.world.msg_table.get(&TypeIdWrapper::of::<E>()) {
+    msg: M,
+) -> M {
+    let msg2 = dispatch_even_innerer(access, target, Box::new(msg));
+    // SAFETY: the type ID guards prevent this from being different
+    unsafe { *msg2.downcast().unwrap_unchecked() }
+}
+
+pub(crate) fn dispatch_even_innerer(
+    access: &ListenerWorldAccess,
+    target: Entity,
+    mut msg: Box<dyn Message>,
+) -> Box<dyn Message> {
+    let event_handlers = match access.world.msg_table.get(&(*msg).type_id_wrapper()) {
         Some(it) => it,
         None => {
             // i've never met this event type in my life
-            return event;
+            return msg;
         }
     };
 
     let components = access.world.entities.get(target).unwrap();
-    for comp in components.iter() {
-        let lock = comp.try_read().unwrap_or_else(|_| loop_panic(target));
-        let tid = (**lock).type_id_wrapper();
+    for (tid, comp) in components.iter() {
         if let Some(handler) = event_handlers.get(&tid) {
-            let event2 = match handler {
-                MsgHandlerInner::Read(handler) => handler(&**lock, Box::new(event), target, access),
+            let lock = comp.try_read().unwrap_or_else(|_| loop_panic(target, tid));
+            let msg2 = match handler {
+                MsgHandlerInner::Read(handler) => handler(&**lock, msg, target, access),
                 MsgHandlerInner::Write(handler) => {
                     drop(lock);
-                    let mut lock = comp.try_write().unwrap_or_else(|_| loop_panic(target));
-                    handler(&mut **lock, Box::new(event), target, access)
+                    let mut lock = comp.try_write().unwrap_or_else(|_| loop_panic(target, tid));
+                    handler(&mut **lock, msg, target, access)
                 }
             };
-            // SAFETY: the type ID guards prevent these from being different types.
-            event = unsafe { *event2.downcast().unwrap_unchecked() };
+            msg = msg2
         }
     }
 
-    event
+    for (queued_msg, target) in access.queued_message_rx().try_iter() {
+        dispatch_even_innerer(access, target, queued_msg);
+    }
+
+    msg
 }

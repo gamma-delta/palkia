@@ -60,9 +60,7 @@ fn double_query() {
 }
 
 #[test]
-#[should_panic(
-    expected = "Entity { index: 0, generation: 0 } had a component write queried when it was borrowed"
-)]
+#[should_panic(expected = "borrowed")]
 fn double_query_rw() {
     let mut world = World::new();
     world.register_component::<Foo>();
@@ -75,9 +73,7 @@ fn double_query_rw() {
 }
 
 #[test]
-#[should_panic(
-    expected = "Entity { index: 0, generation: 0 } had a component read queried when it was mutably"
-)]
+#[should_panic(expected = "borrowed")]
 fn double_query_wr() {
     let mut world = World::new();
     world.register_component::<Foo>();
@@ -89,9 +85,7 @@ fn double_query_wr() {
     let _q2 = world.query::<&Foo>(foo).unwrap();
 }
 #[test]
-#[should_panic(
-    expected = "Entity { index: 0, generation: 0 } had a component write queried when it was borrowed"
-)]
+#[should_panic(expected = "borrowed")]
 fn double_query_ww() {
     let mut world = World::new();
     world.register_component::<Foo>();

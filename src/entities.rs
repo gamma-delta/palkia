@@ -36,12 +36,12 @@ impl EntityAssoc {
     }
 
     /// Iterate in increasing order of priority
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &ComponentEntry> + '_ {
-        self.components.values()
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (TypeIdWrapper, &ComponentEntry)> + '_ {
+        self.components.iter().map(|(tid, comp)| (*tid, comp))
     }
 
-    pub(crate) fn into_iter(self) -> impl Iterator<Item = ComponentEntry> {
-        self.components.into_values()
+    pub(crate) fn into_iter(self) -> impl Iterator<Item = (TypeIdWrapper, ComponentEntry)> {
+        self.components.into_iter()
     }
 
     pub(crate) fn len(&self) -> usize {

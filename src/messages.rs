@@ -56,14 +56,19 @@ pub(crate) enum MsgHandlerInner {
 /// Some of the changes here won't actually apply until `World::finalize` is called.
 pub struct ListenerWorldAccess<'w> {
     lazy_updates: channel::Sender<LazyUpdate>,
+    queued_message_tx: channel::Sender<(Box<dyn Message>, Entity)>,
+    queued_message_rx: channel::Receiver<(Box<dyn Message>, Entity)>,
 
     pub(crate) world: &'w World,
 }
 
 impl<'w> ListenerWorldAccess<'w> {
     pub(crate) fn new(world: &'w World) -> Self {
+        let (tx, rx) = channel::unbounded();
         Self {
             lazy_updates: world.lazy_sender.clone(),
+            queued_message_tx: tx,
+            queued_message_rx: rx,
             world,
         }
     }
@@ -78,9 +83,19 @@ impl<'w> ListenerWorldAccess<'w> {
         self.world.resources.write()
     }
 
-    /// Dispatch a message to the given entity.
+    /// Immediately dispatch a message to the given entity.
     pub fn dispatch<M: Message>(&self, target: Entity, msg: M) -> M {
         dispatch_inner(self, target, msg)
+    }
+
+    /// Queue dispatching a message to the given entity. That entity will get the message sent to it once the current
+    /// entity is through threading the current message through its components.
+    ///
+    /// Because handling of the new message is delayed, you cannot get the updated value of the message.
+    pub fn queue_dispatch<M: Message>(&self, target: Entity, msg: M) {
+        self.queued_message_tx
+            .send((Box::new(msg), target))
+            .unwrap();
     }
 
     pub fn lazy_spawn<'a>(&'a self) -> LazyEntityBuilder<'a, 'w> {
@@ -122,5 +137,9 @@ impl<'w> ListenerWorldAccess<'w> {
 
     pub(crate) fn queue_update(&self, update: LazyUpdate) {
         self.lazy_updates.send(update).unwrap();
+    }
+
+    pub fn queued_message_rx(&self) -> &channel::Receiver<(Box<dyn Message>, Entity)> {
+        &self.queued_message_rx
     }
 }

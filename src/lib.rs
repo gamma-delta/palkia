@@ -93,12 +93,13 @@ where
     }
 }
 
-fn loop_panic(perpetrator: Entity) -> ! {
-    panic!("{:?} sent an event to one of its own components when it was mutably borrowed, probably via a loop of events. check the stacktrace.", perpetrator)
+fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
+    panic!("{:?} sent an event to one of its own components of type {} when it was mutably borrowed, probably via a loop of events. check the stacktrace.", perpetrator, comp_tid.type_name)
 }
 
 pub mod prelude {
     pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
+    pub use crate::callback::CallbackWorldAccess;
     pub use crate::component::{Component, HandlerBuilder};
     pub use crate::entities::Entity;
     pub use crate::messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite};
