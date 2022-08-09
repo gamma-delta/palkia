@@ -16,6 +16,7 @@ ahash = "0.7.6"
 crossbeam = "0.8.1"
 downcast = "0.11.0"
 indexmap = "1.9.1"
+serde = { version = "1.0.143", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 aglet = "0.1.1"
