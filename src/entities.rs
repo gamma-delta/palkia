@@ -1,8 +1,11 @@
-use std::sync::RwLock;
+use std::{iter, sync::RwLock};
 
 use indexmap::IndexMap;
 
-use crate::prelude::Component;
+use crate::{
+    allocator,
+    prelude::{Component, World},
+};
 use crate::{ToTypeIdWrapper, TypeIdWrapper};
 
 /// A handle to a list of [`Component`]s.
@@ -52,6 +55,42 @@ impl EntityAssoc {
         &self,
     ) -> &IndexMap<TypeIdWrapper, ComponentEntry, ahash::RandomState> {
         &self.components
+    }
+}
+
+/// Iterator over all the entities in a world, in no particular order.
+pub struct EntityIter<'w> {
+    iter: iter::Map<allocator::Iter<'w, EntityAssoc>, fn((Entity, &EntityAssoc)) -> Entity>,
+}
+
+impl<'w> EntityIter<'w> {
+    pub(crate) fn new(w: &'w World) -> Self {
+        // Make this a non-closure so we can have a writeable type
+        fn car(pair: (Entity, &EntityAssoc)) -> Entity {
+            pair.0
+        }
+
+        Self {
+            iter: w.entities.iter().map(car),
+        }
+    }
+}
+
+impl<'w> Iterator for EntityIter<'w> {
+    type Item = Entity;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl<'w> ExactSizeIterator for EntityIter<'w> {
+    fn len(&self) -> usize {
+        self.iter.len()
     }
 }
 

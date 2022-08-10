@@ -3,11 +3,14 @@ use std::sync::atomic::Ordering;
 use crossbeam::channel;
 use downcast::{downcast, AnySync};
 
-use crate::builder::LazyEntityBuilder;
-use crate::entities::EntityAssoc;
 use crate::prelude::{Component, Entity, Query, World};
 use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
 use crate::world::{dispatch_inner, LazyUpdate};
+use crate::{
+    builder::LazyEntityBuilder,
+    prelude::{AccessDispatcher, AccessEntityStats, AccessQuery},
+};
+use crate::{entities::EntityAssoc, prelude::AccessResources};
 
 /// Data that is threaded through components.
 ///
@@ -73,31 +76,19 @@ impl<'w> ListenerWorldAccess<'w> {
         }
     }
 
-    /// Get immutable access to the given resource.
-    pub fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
-        self.world.resources.read()
-    }
-
-    /// Get mutable access to the given resource.
-    pub fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
-        self.world.resources.write()
-    }
-
-    /// Immediately dispatch a message to the given entity.
-    pub fn dispatch<M: Message>(&self, target: Entity, msg: M) -> M {
-        dispatch_inner(self, target, msg)
-    }
-
     /// Queue dispatching a message to the given entity. That entity will get the message sent to it once the current
     /// entity is through threading the current message through its components.
     ///
     /// Because handling of the new message is delayed, you cannot get the updated value of the message.
+    ///
+    /// This is handy for dispatching messages which would otherwise mutate components currently locked.
     pub fn queue_dispatch<M: Message>(&self, target: Entity, msg: M) {
         self.queued_message_tx
             .send((Box::new(msg), target))
             .unwrap();
     }
 
+    /// Set up an entity to be spawned once [`World::finalize`] is called.
     pub fn lazy_spawn<'a>(&'a self) -> LazyEntityBuilder<'a, 'w> {
         let entities_spawned = self
             .world
@@ -125,21 +116,55 @@ impl<'w> ListenerWorldAccess<'w> {
         Q::query(interrogatee, comps)
     }
 
-    /// Check if the given entity is, at this moment, still alive.
-    pub fn is_alive(&self, e: Entity) -> bool {
-        self.world.entities.get(e).is_some()
-    }
-
-    /// Get the number of components on the given entity, or `None` if it's dead.
-    pub fn len_of(&self, e: Entity) -> Option<usize> {
-        self.world.entities.get(e).map(EntityAssoc::len)
-    }
-
     pub(crate) fn queue_update(&self, update: LazyUpdate) {
         self.lazy_updates.send(update).unwrap();
     }
 
-    pub fn queued_message_rx(&self) -> &channel::Receiver<(Box<dyn Message>, Entity)> {
+    pub(crate) fn queued_message_rx(&self) -> &channel::Receiver<(Box<dyn Message>, Entity)> {
         &self.queued_message_rx
+    }
+}
+
+impl<'w> AccessDispatcher for ListenerWorldAccess<'w> {
+    fn dispatch<M: Message>(&self, target: Entity, msg: M) -> M {
+        dispatch_inner(self, target, msg)
+    }
+}
+
+impl<'w> AccessEntityStats for ListenerWorldAccess<'w> {
+    fn len(&self) -> usize {
+        self.world.len()
+    }
+
+    fn is_alive(&self, entity: Entity) -> bool {
+        self.world.is_alive(entity)
+    }
+
+    fn len_of(&self, entity: Entity) -> usize {
+        self.world.len_of(entity)
+    }
+
+    fn iter(&self) -> crate::entities::EntityIter<'_> {
+        self.world.iter()
+    }
+}
+
+impl<'w> AccessQuery for ListenerWorldAccess<'w> {
+    fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
+        self.world.query::<Q>(interrogatee)
+    }
+}
+
+impl<'w> AccessResources for ListenerWorldAccess<'w> {
+    fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
+        self.world.read_resource()
+    }
+
+    fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
+        self.world.write_resource()
+    }
+
+    fn contains_resource<R: Resource>(&self) -> bool {
+        self.world.contains_resource::<R>()
     }
 }
