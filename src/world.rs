@@ -1,28 +1,29 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use crossbeam::channel;
 
-use crate::callback::{CallbackWorldAccess, Callbacks};
-use crate::component::{Component, HandlerBuilder};
-use crate::entities::{Entity, EntityAssoc};
+use crate::access::{AccessDispatcher, AccessEntityStats};
+use crate::entities::Entity;
 use crate::messages::{ListenerWorldAccess, Message, MsgHandlerInner};
 use crate::prelude::Query;
 use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
 use crate::{
-    access::{AccessDispatcher, AccessEntityStats},
-    allocator::EntityAllocator,
-    entities::EntityIter,
-};
-use crate::{
     access::{AccessQuery, AccessResources},
     builder::ImmediateEntityBuilder,
+};
+use crate::{
+    callback::{CallbackWorldAccess, Callbacks},
+    entities::EntityStorage,
+};
+use crate::{
+    component::{Component, HandlerBuilder},
+    entities::EntityAssoc,
 };
 use crate::{loop_panic, ToTypeIdWrapper, TypeIdWrapper};
 
 pub struct World {
     /// Each entity maps type IDs to their components
-    pub(crate) entities: EntityAllocator<EntityAssoc>,
+    pub(crate) entities: EntityStorage,
     /// Maps event types to, maps component types to the EventHandler.
     msg_table: BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, MsgHandlerInner>>,
     pub(crate) known_component_types: BTreeSet<TypeIdWrapper>,
@@ -31,8 +32,6 @@ pub struct World {
 
     pub(crate) lazy_sender: channel::Sender<LazyUpdate>,
     lazy_channel: channel::Receiver<LazyUpdate>,
-    pub(crate) lazy_entities_created: AtomicUsize,
-    pub(crate) lazy_entities_deleted: AtomicU64,
 
     /// Maps component types to their callbacks
     callbacks: BTreeMap<TypeIdWrapper, Callbacks>,
@@ -43,14 +42,12 @@ impl World {
         let (tx, rx) = channel::unbounded();
 
         Self {
-            entities: EntityAllocator::new(),
+            entities: EntityStorage::default(),
             msg_table: BTreeMap::new(),
             resources: ResourceMap::new(),
             known_component_types: BTreeSet::new(),
             lazy_sender: tx,
             lazy_channel: rx,
-            lazy_entities_created: AtomicUsize::new(0),
-            lazy_entities_deleted: AtomicU64::new(0),
             callbacks: BTreeMap::new(),
         }
     }
@@ -88,27 +85,27 @@ impl World {
 
     /// Set up a builder to spawn an entity with a whole mess of components.
     pub fn spawn(&mut self) -> ImmediateEntityBuilder<'_> {
-        let to_create = self.spawn_empty();
+        let to_create = self.entities.spawn_unfinished();
         ImmediateEntityBuilder::new(self, to_create)
     }
 
     /// Spawn a new empty entity.
     pub fn spawn_empty(&mut self) -> Entity {
         // no need to run callbacks cause there's nothing on it to call back
-        self.entities.insert(EntityAssoc::empty())
+        self.entities.spawn(EntityAssoc::empty())
     }
 
     /// As a convenience method, spawn an entity with a single component.
     pub fn spawn_1<C: Component>(&mut self, component: C) -> Entity {
         let assoc = EntityAssoc::new([Box::new(component) as _]);
-        let e = self.entities.insert(assoc);
+        let e = self.entities.spawn(assoc);
         self.run_creation_callbacks(e);
         e
     }
 
-    /// Dispatch a message to all entities, cloning it for each entity.
+    /// Convenience method to dispatch a message to all entities, cloning it for each entity.
     pub fn dispatch_to_all<M: Message + Clone>(&self, msg: M) {
-        for (e, _) in self.entities.iter() {
+        for e in self.entities.iter() {
             self.dispatch(e, msg.clone());
         }
     }
@@ -145,13 +142,11 @@ impl World {
         for lazy in updates {
             lazy.apply(self);
         }
-        *self.lazy_entities_created.get_mut() = 0;
-        *self.lazy_entities_deleted.get_mut() = 0;
     }
 
     pub(crate) fn run_creation_callbacks(&self, e: Entity) {
         let access = CallbackWorldAccess::new(self);
-        for (tid, comp) in self.entities.get(e).unwrap().components() {
+        for (tid, comp) in self.entities.get(e).components() {
             if let Some(cb) = self.callbacks.get(tid).and_then(Callbacks::get_create) {
                 // i am *pretty* sure this will never be locked?
                 let comp = comp.try_read().unwrap();
@@ -198,24 +193,21 @@ impl AccessEntityStats for World {
     }
 
     fn is_alive(&self, entity: Entity) -> bool {
-        self.entities.get(entity).is_some()
+        self.entities.is_alive(entity)
     }
 
     fn len_of(&self, entity: Entity) -> usize {
-        let assoc = self.entities.get(entity).expect("entity was not alive");
-        assoc.len()
+        self.entities.len_of(entity)
     }
 
     fn iter(&self) -> crate::entities::EntityIter<'_> {
-        EntityIter::new(self)
+        self.entities.iter()
     }
 }
 
 impl AccessQuery for World {
     fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
-        let comps = self.entities.get(interrogatee).unwrap_or_else(|| {
-            panic!("{:?} could not be queried because it is dead", interrogatee)
-        });
+        let comps = self.entities.get(interrogatee);
         Q::query(interrogatee, comps)
     }
 }
@@ -235,27 +227,20 @@ impl AccessResources for World {
 }
 
 pub(crate) enum LazyUpdate {
-    SpawnEntity(Vec<Box<dyn Component>>, Entity),
+    FinishEntity(Vec<Box<dyn Component>>, Entity),
     DespawnEntity(Entity),
 }
 
 impl LazyUpdate {
     fn apply(self, world: &mut World) {
         match self {
-            LazyUpdate::SpawnEntity(comps, expect) => {
-                let new = world.entities.insert_increasing(EntityAssoc::new(comps));
-                debug_assert_eq!(new, expect);
-                world.run_creation_callbacks(expect);
+            LazyUpdate::FinishEntity(comps, entity) => {
+                world.entities.finish_spawn(entity, EntityAssoc::new(comps));
+                world.run_creation_callbacks(entity);
             }
             LazyUpdate::DespawnEntity(entity) => {
-                let prev = world.entities.remove(entity);
-                match prev {
-                    Some(assoc) => world.run_removal_callback(entity, assoc),
-                    None => panic!(
-                        "cannot lazy despawn {:?} because it was already removed",
-                        entity
-                    ),
-                }
+                let prev = world.entities.despawn(entity);
+                world.run_removal_callback(entity, prev);
             }
         }
     }
@@ -284,7 +269,7 @@ pub(crate) fn dispatch_even_innerer(
         }
     };
 
-    let components = access.world.entities.get(target).unwrap();
+    let components = access.world.entities.get(target);
     for (tid, comp) in components.iter() {
         if let Some(handler) = event_handlers.get(&tid) {
             let lock = comp.try_read().unwrap_or_else(|_| loop_panic(target, tid));

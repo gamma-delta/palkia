@@ -1,18 +1,102 @@
-use std::{iter, sync::RwLock};
+use std::{collections::hash_map, iter, sync::RwLock};
 
+use ahash::AHashMap;
+use generational_arena::Arena;
 use indexmap::IndexMap;
 
-use crate::{
-    allocator,
-    prelude::{Component, World},
-};
-use crate::{ToTypeIdWrapper, TypeIdWrapper};
+use generational_arena::Index;
+
+use crate::{prelude::Component, ToTypeIdWrapper, TypeIdWrapper};
 
 /// A handle to a list of [`Component`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Entity {
-    pub(crate) index: usize,
-    pub(crate) generation: u64,
+pub struct Entity(pub(crate) Index);
+
+/// Allocator and storage for entities.
+///
+/// This creates indices with an allocator protected by a lock, and maps them to the actual (unlocked) data bundles
+/// in a separate map. This way we can get accurate indices for lazily created entities.
+///
+/// An entity present in the allocator but not the assocs means it's half-alive.
+#[derive(Default)]
+pub(crate) struct EntityStorage {
+    allocator: RwLock<Arena<()>>,
+    assocs: AHashMap<Entity, EntityAssoc>,
+}
+
+impl EntityStorage {
+    /// Immediately spawn an entity with the given data.
+    pub fn spawn(&mut self, assoc: EntityAssoc) -> Entity {
+        let alloc = self.allocator.get_mut().unwrap();
+        let e = Entity(alloc.insert(()));
+        self.assocs.insert(e, assoc);
+        e
+    }
+
+    /// Lazily spawn an entity. This creates a slot for it, but does not put any
+    /// data in it.
+    pub fn spawn_unfinished(&self) -> Entity {
+        let mut lock = self.allocator.try_write().unwrap();
+        Entity(lock.insert(()))
+    }
+
+    /// Finish the spawning of an entity that's been lazily created but not instantiated fully.
+    ///
+    /// Panics if the invariant is not upheld.
+    pub fn finish_spawn(&mut self, target: Entity, assoc: EntityAssoc) {
+        match self.assocs.insert(target, assoc) {
+            None => {} // all good
+            Some(..) => {
+                panic!("tried to finish spawning an entity that was already alive")
+            }
+        }
+    }
+
+    /// Immediately despawn the given entity.
+    ///
+    /// Returns the associated data in case you want it for some reason
+    pub fn despawn(&mut self, target: Entity) -> EntityAssoc {
+        let alloc = self.allocator.get_mut().unwrap();
+        if alloc.remove(target.0).is_none() {
+            panic!("tried to despawn an entity that was not in the allocator");
+        }
+
+        let assoc = self.assocs.remove(&target);
+        match assoc {
+            Some(it) => it,
+            None => panic!("tried to despawn an entity that was not finished."),
+        }
+    }
+
+    /// Get the data associated with the given entity.
+    pub fn get(&self, entity: Entity) -> &EntityAssoc {
+        match self.assocs.get(&entity) {
+            Some(it) => it,
+            None => panic!("tried to get an unfinished entity"),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.assocs.len()
+    }
+
+    pub fn is_alive(&self, entity: Entity) -> bool {
+        self.assocs.contains_key(&entity)
+    }
+
+    pub fn len_of(&self, entity: Entity) -> usize {
+        let assoc = self
+            .assocs
+            .get(&entity)
+            .expect("tried to get the len of a dead entity");
+        assoc.len()
+    }
+
+    pub fn iter(&self) -> EntityIter<'_> {
+        EntityIter {
+            iter: self.assocs.keys().copied(),
+        }
+    }
 }
 
 /// Data stored under each entity.
@@ -58,25 +142,16 @@ impl EntityAssoc {
     }
 }
 
+/// How each component is stored. Right now this uses naive locking; in the future we might
+/// do something fancier.
+pub(crate) type ComponentEntry = RwLock<Box<dyn Component>>;
+
 /// Iterator over all the entities in a world, in no particular order.
-pub struct EntityIter<'w> {
-    iter: iter::Map<allocator::Iter<'w, EntityAssoc>, fn((Entity, &EntityAssoc)) -> Entity>,
+pub struct EntityIter<'a> {
+    iter: iter::Copied<hash_map::Keys<'a, Entity, EntityAssoc>>,
 }
 
-impl<'w> EntityIter<'w> {
-    pub(crate) fn new(w: &'w World) -> Self {
-        // Make this a non-closure so we can have a writeable type
-        fn car(pair: (Entity, &EntityAssoc)) -> Entity {
-            pair.0
-        }
-
-        Self {
-            iter: w.entities.iter().map(car),
-        }
-    }
-}
-
-impl<'w> Iterator for EntityIter<'w> {
+impl<'a> Iterator for EntityIter<'a> {
     type Item = Entity;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -93,7 +168,3 @@ impl<'w> ExactSizeIterator for EntityIter<'w> {
         self.iter.len()
     }
 }
-
-/// How each component is stored. Right now this uses naive locking; in the future we might
-/// do something fancier.
-pub(crate) type ComponentEntry = RwLock<Box<dyn Component>>;

@@ -1,8 +1,7 @@
-use std::sync::atomic::Ordering;
-
 use crossbeam::channel;
 use downcast::{downcast, AnySync};
 
+use crate::prelude::AccessResources;
 use crate::prelude::{Component, Entity, Query, World};
 use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
 use crate::world::{dispatch_inner, LazyUpdate};
@@ -10,7 +9,6 @@ use crate::{
     builder::LazyEntityBuilder,
     prelude::{AccessDispatcher, AccessEntityStats, AccessQuery},
 };
-use crate::{entities::EntityAssoc, prelude::AccessResources};
 
 /// Data that is threaded through components.
 ///
@@ -90,30 +88,13 @@ impl<'w> ListenerWorldAccess<'w> {
 
     /// Set up an entity to be spawned once [`World::finalize`] is called.
     pub fn lazy_spawn<'a>(&'a self) -> LazyEntityBuilder<'a, 'w> {
-        let entities_spawned = self
-            .world
-            .lazy_entities_created
-            .fetch_add(1, Ordering::SeqCst);
-        let entity = Entity {
-            generation: self.world.entities.generation()
-                + self.world.lazy_entities_deleted.load(Ordering::SeqCst),
-            index: self.world.entities.capacity() + entities_spawned,
-        };
+        let entity = self.world.entities.spawn_unfinished();
         LazyEntityBuilder::new(self, entity)
     }
 
     /// Queue an entity to be despawned when [`World::finalize`] is called.
     pub fn lazy_despawn(&self, entity: Entity) {
-        self.world
-            .lazy_entities_deleted
-            .fetch_add(1, Ordering::SeqCst);
         self.queue_update(LazyUpdate::DespawnEntity(entity));
-    }
-
-    /// Query the given entity for the given elements. If the entity is dead, returns `None`.
-    pub fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
-        let comps = self.world.entities.get(interrogatee)?;
-        Q::query(interrogatee, comps)
     }
 
     pub(crate) fn queue_update(&self, update: LazyUpdate) {

@@ -15,6 +15,7 @@ categories = ["game-development"]
 ahash = "0.7.6"
 crossbeam = "0.8.1"
 downcast = "0.11.0"
+generational-arena = "0.2.8"
 indexmap = "1.9.1"
 
 [dev-dependencies]
