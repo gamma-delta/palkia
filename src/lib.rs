@@ -113,6 +113,6 @@ pub mod prelude {
     pub use crate::query::Query;
     pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
     #[cfg(feature = "serde")]
-    pub use crate::serde::{MsgSerialize, SerDeComponent, SerializationError};
+    pub use crate::serde::{MsgSerialize, SerDeComponent, SerError};
     pub use crate::world::World;
 }

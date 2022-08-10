@@ -26,7 +26,7 @@ crossterm = "0.24.0"
 fastrand = "1.7.0"
 # For serde tests, cause it was the only human-readable format i could find that accepts
 # arbitrary keys in maps
-ron = { version = "0.7.1", features = ["indexmap"] }
+ron = "0.7.1"
 
 [features]
 default = ["serde"]

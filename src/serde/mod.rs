@@ -26,17 +26,16 @@ an-entity: {
 
 */
 
-use std::{collections::BTreeMap, fmt::Debug, hash::Hash, marker::PhantomData, any::{Any as StdAny, TypeId}};
+use std::{collections::BTreeMap, fmt::Debug, hash::Hash};
 
 use ahash::AHashMap;
-use downcast::{downcast, Any};
-use serde::{de::DeserializeOwned, ser::SerializeMap, Serialize, Serializer};
+use serde::{de::DeserializeOwned, Serialize, Serializer};
+use serde_value::Value as SerdeValue;
 
 use crate::{
-    entities::{ComponentEntry, EntityAssoc},
     messages::{ListenerWorldAccess, Message},
     prelude::{AccessDispatcher, AccessEntityStats, Component, Entity, World},
-    ToTypeIdWrapper, TypeIdWrapper,
+    TypeIdWrapper,
 };
 
 /// Types that can be used as an id when serializing. This only exists to make the trait bounds less unwieldy.
@@ -53,16 +52,17 @@ impl<T: Clone + Hash + PartialEq + Eq + Serialize + Send + Sync + 'static> SerKe
 // So, theory is to clone the serde_value crate and actually support the whole data model.
 
 /// Internal-only-ish message type used to serialize things.
-pub struct MsgSerialize<Id: SerKey, S: Serializer> {
-    components: BTreeMap<TypeId, (Id, )>
+pub struct MsgSerialize<Id: SerKey> {
+    components: BTreeMap<TypeIdWrapper, (Id, SerdeValue)>,
+    error: Option<serde_value::SerializerError>,
 }
-impl<Id: SerKey, S: Serializer> Message for MsgSerialize<Id, S> {}
+impl<Id: SerKey> Message for MsgSerialize<Id> {}
 
-impl<'s, Id: SerKey, S: Serializer> MsgSerialize<Id, S> {
+impl<Id: SerKey> MsgSerialize<Id> {
     fn new() -> Self {
         Self {
             components: BTreeMap::new(),
-            phantom: PhantomData
+            error: None,
         }
     }
 }
@@ -78,9 +78,7 @@ impl<'s, Id: SerKey, S: Serializer> MsgSerialize<Id, S> {
 ///
 /// ... ok, *technically*, this is not true; if you wanted, you could have two separate type IDs, but then
 /// serializing would only work on components with one type of ID at a time ... why do you want to do this?
-pub trait SerDeComponent<Id: SerKey, S: Serializer>:
-    Component + Serialize + DeserializeOwned + Any
-{
+pub trait SerDeComponent<Id: SerKey>: Component + Serialize + DeserializeOwned {
     /// Get the type ID used for this particular component type.
     /// This must be unique across all component types you wish to serialize.
     ///
@@ -90,49 +88,81 @@ pub trait SerDeComponent<Id: SerKey, S: Serializer>:
     /// Default impl of a read handler for [`MsgSerialize`].
     fn serde_handler(
         &self,
-        mut msg: MsgSerialize<Id, S>,
+        mut msg: MsgSerialize<Id>,
         _: Entity,
         _: &ListenerWorldAccess,
-    ) -> MsgSerialize<Id, S> {
+    ) -> MsgSerialize<Id> {
+        if msg.error.is_some() {
+            return msg;
+        }
+
         let tid = TypeIdWrapper::of::<Self>();
-        let clo = |sermap: &mut S::SerializeMap, cmp: &dyn SerDeComponent| {
-            // SAFETY: type ID guards
-            let id = Self::get_id();
-            let cmp: &Self = unsafe { cmp.downcast_ref().unwrap_unchecked() };
-            sermap.serialize_entry(&id, cmp)
-        };
-        msg.components.insert(tid, Box::new(clo));
+        let id = Self::get_id();
+
+        let ser = serde_value::to_value(self);
+        match ser {
+            Ok(it) => {
+                msg.components.insert(tid, (id, it));
+            }
+            Err(err) => msg.error = Some(err),
+        }
+
         msg
     }
 }
-downcast!(<Id, S> dyn SerDeComponent<Id, S>);
 
 impl World {
     /// Serialize the entities (AND THE ENTITIES ALONE) in the world.
     ///
-    /// Empty entities will not be serialized. Put a marker component on them if you want them to stay.
+    /// Entities with no serializable components will not be serialized.
+    /// Put a marker component on them if you want them to stay.
     pub fn serialize_entities<S: Serializer, Id: SerKey>(
         &mut self,
         serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let mut akashic_map = serializer.serialize_map(None)?
+    ) -> Result<S::Ok, SerError<S>> {
+        let mut entity_map = AHashMap::new();
         for e in self.iter() {
-            let msg = self.dispatch(e, MsgSerialize::<Id, S>::new());
+            let msg = self.dispatch(e, MsgSerialize::<Id>::new());
 
-            let sermap = serializer.serialize_map(None)?;
-            for (tid, comp) in self.entities.get(e).unwrap().iter() {
-                if let Some(serfunc) = msg.components.get(&tid) {
-                    let lock = comp.try_read().unwrap();
-                    serfunc(&mut sermap, lock.as_any())?;
-                }
+            if let Some(ono) = msg.error {
+                return Err(SerError::SerdeValue(ono));
             }
 
+            let mut extant_ids = AHashMap::new();
+            let mut sermap = AHashMap::new();
+            for (tid, (id, val)) in msg.components {
+                if let Some(extant_id) = extant_ids.get(&tid) {
+                    if &id != extant_id {
+                        panic!("somehow, a component of type {} returned inconsistent values for its ser key. why did you code that. what are you doing.", tid.type_name);
+                    }
+                } else {
+                    extant_ids.insert(tid, id.clone());
+                }
+                sermap.insert(id, val);
+            }
 
-            entity_map.insert(e, )
+            entity_map.insert(e, sermap);
         }
 
         entity_map
             .serialize(serializer)
-            .map_err(|e| SerializationError::SerError(e))
+            .map_err(|e| SerError::Ser(e))
+    }
+}
+
+pub enum SerError<S: Serializer> {
+    SerdeValue(serde_value::SerializerError),
+    Ser(S::Error),
+}
+
+impl<S: Serializer> Debug for SerError<S>
+where
+    S::Error: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SerdeValue(arg0) => f.debug_tuple("SerdeValue").field(arg0).finish(),
+            Self::Ser(arg0) => f.debug_tuple("Ser").field(arg0).finish(),
+        }
     }
 }

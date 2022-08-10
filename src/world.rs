@@ -244,7 +244,10 @@ impl LazyUpdate {
         match self {
             LazyUpdate::SpawnEntity(comps, expect) => {
                 let new = world.entities.insert_increasing(EntityAssoc::new(comps));
-                debug_assert_eq!(new, expect);
+                debug_assert_eq!(
+                    new, expect,
+                    "the world returned the first entity id when we expected the second"
+                );
                 world.run_creation_callbacks(expect);
             }
             LazyUpdate::DespawnEntity(entity) => {
