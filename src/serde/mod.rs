@@ -7,7 +7,7 @@ but `TypeID`'s specific values aren't stable between rustc versions. So you have
 
 So, if you choose to use `&'static str` keys, storage for a sample entity might look something like this:
 
-```no-run
+```json
 an-entity: {
     "position": [1.0, 2.0, 3.0],
     "velocity": [4.0, 5.0, 6.0]
@@ -17,7 +17,7 @@ an-entity: {
 If you decide instead to use some enum that serializes to an integer as a key, perhaps for compactness,
 it will be something like this:
 
-```no-run
+```json
 an-entity: {
     0: [1.0, 2.0, 3.0],
     1: [4.0, 5.0, 6.0]

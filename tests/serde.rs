@@ -37,24 +37,23 @@ fn ser_entities() {
 
     let expect = r#"
 {
-    {"generation":0,"index":0}: { "counter": {"count": 3} },
-    {"generation":0,"index":1}: { "duplicator": () },
-    {"generation":0,"index":2}: { "counter": {"count": 3}, "duplicator": () },
-
-    {"generation":0,"index":3}: { "duplicator": () },
-    {"generation":0,"index":4}: { "duplicator": () },
-    {"generation":0,"index":5}: { "duplicator": () },
-    {"generation":0,"index":6}: { "duplicator": () },
-    {"generation":0,"index":7}: { "duplicator": () },
-    {"generation":0,"index":8}: { "duplicator": () },
-    {"generation":0,"index":9}: { "duplicator": () },
-    {"generation":0,"index":10}: { "duplicator": () },
-    {"generation":0,"index":11}: { "duplicator": () },
-    {"generation":0,"index":12}: { "duplicator": () },
-    {"generation":0,"index":13}: { "duplicator": () },
-    {"generation":0,"index":14}: { "duplicator": () },
-    {"generation":0,"index":15}: { "duplicator": () },
-    {"generation":0,"index":16}: { "duplicator": () }
+    [0,0]: { "counter": {"count": 3} },
+    [1,0]: { "duplicator": () },
+    [2,0]: { "counter": {"count": 3}, "duplicator": () },
+    [3,0]: { "duplicator": () },
+    [4,0]: { "duplicator": () },
+    [5,0]: { "duplicator": () },
+    [6,0]: { "duplicator": () },
+    [7,0]: { "duplicator": () },
+    [8,0]: { "duplicator": () },
+    [9,0]: { "duplicator": () },
+    [10,0]: { "duplicator": () },
+    [11,0]: { "duplicator": () },
+    [12,0]: { "duplicator": () },
+    [13,0]: { "duplicator": () },
+    [14,0]: { "duplicator": () },
+    [15,0]: { "duplicator": () },
+    [16,0]: { "duplicator": () }
 }    
 "#
     .replace(char::is_whitespace, "");

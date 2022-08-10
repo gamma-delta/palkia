@@ -11,6 +11,7 @@ use crate::{prelude::Component, ToTypeIdWrapper, TypeIdWrapper};
 /// A handle to a list of [`Component`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Entity(pub(crate) Index);
 
 /// Allocator and storage for entities.

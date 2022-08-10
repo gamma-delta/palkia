@@ -31,4 +31,9 @@ ron = "0.7.1"
 
 [features]
 default = ["serde"]
-serde = ["dep:serde", "dep:serde-value", "ahash/serde"]
+serde = [
+"dep:serde",
+"dep:serde-value",
+"ahash/serde",
+"generational-arena/serde",
+]
