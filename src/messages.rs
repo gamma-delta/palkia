@@ -1,8 +1,9 @@
 use std::sync::atomic::Ordering;
 
 use crossbeam::channel;
-use downcast::{downcast, AnySync};
+use downcast::{downcast, Any};
 
+use crate::prelude::AccessResources;
 use crate::prelude::{Component, Entity, Query, World};
 use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
 use crate::world::{dispatch_inner, LazyUpdate};
@@ -10,14 +11,13 @@ use crate::{
     builder::LazyEntityBuilder,
     prelude::{AccessDispatcher, AccessEntityStats, AccessQuery},
 };
-use crate::{entities::EntityAssoc, prelude::AccessResources};
 
 /// Data that is threaded through components.
 ///
 /// When a message is dispatched to an entity, it goes through its components. A component with a handler for this type
 /// registered with [`World::register_component`] gets its listener called, and then the updated event gets passed to the next
 /// component ... and so on. Then, it's returned to the dispatcher.
-pub trait Message: AnySync {}
+pub trait Message: Any {}
 downcast!(dyn Message);
 
 /// A message handler that only needs immutable access to the component.

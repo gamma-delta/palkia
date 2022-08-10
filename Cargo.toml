@@ -16,10 +16,18 @@ ahash = "0.7.6"
 crossbeam = "0.8.1"
 downcast = "0.11.0"
 indexmap = "1.9.1"
+
 serde = { version = "1.0.143", optional = true, features = ["derive"] }
+serde-value = { version = "0.7.0", path = "./serde-value", optional = true }
 
 [dev-dependencies]
 aglet = "0.1.1"
-
 crossterm = "0.24.0"
 fastrand = "1.7.0"
+# For serde tests, cause it was the only human-readable format i could find that accepts
+# arbitrary keys in maps
+ron = { version = "0.7.1", features = ["indexmap"] }
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde-value", "ahash/serde"]

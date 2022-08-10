@@ -10,6 +10,7 @@ use crate::{ToTypeIdWrapper, TypeIdWrapper};
 
 /// A handle to a list of [`Component`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Entity {
     pub(crate) index: usize,
     pub(crate) generation: u64,

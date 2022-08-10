@@ -11,6 +11,9 @@ pub mod query;
 pub mod resource;
 pub mod world;
 
+#[cfg(feature = "serde")]
+pub mod serde;
+
 use std::any::{self, TypeId};
 use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
@@ -19,6 +22,8 @@ use downcast::Any;
 use prelude::Entity;
 
 #[derive(Clone, Copy)]
+/// Wrapper for a [`TypeId`] that also stores the name of the type, to aid in debugging
+/// and for nicer error messages.
 struct TypeIdWrapper {
     tid: TypeId,
     type_name: &'static str,
@@ -107,5 +112,7 @@ pub mod prelude {
     pub use crate::messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite};
     pub use crate::query::Query;
     pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
+    #[cfg(feature = "serde")]
+    pub use crate::serde::{MsgSerialize, SerDeComponent, SerializationError};
     pub use crate::world::World;
 }
