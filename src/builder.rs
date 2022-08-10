@@ -1,4 +1,11 @@
-use std::collections::BTreeMap;
+//! Lazy and unlazy entity builders.
+//!
+//! See [`EntityBuilder`] for the generic interface, or [`ImmediateEntityBuilder`] and [`LazyEntityBuilder`]
+//! for concrete impls.
+
+// should this go in the access module?
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::entities::EntityAssoc;
 use crate::prelude::{Component, Entity, ListenerWorldAccess, World};
@@ -6,9 +13,12 @@ use crate::world::LazyUpdate;
 use crate::TypeIdWrapper;
 
 /// Unified interface for [`ImmediateEntityBuilder`] and [`LazyEntityBuilder`], for ease of generic code.
+///
+/// When sending a message to an entity, components will recieve the message in the order that things were
+/// added to the builder.
 pub trait EntityBuilder: Sized {
-    /// Insert the given component into the entity, returning the old value of the component
-    /// that was there if any.
+    /// Insert the given component into the entity. If there was a component with that type already on
+    /// the entity, replaces and returns the old component.
     fn insert<C: Component>(&mut self, component: C) -> Option<C>;
 
     /// Insert the given component into the entity. Like [`Self::insert`], but returns `self`
@@ -27,6 +37,9 @@ pub trait EntityBuilder: Sized {
     }
 
     /// Consume this and insert the entity into the world, returning it to the caller.
+    ///
+    /// Note that if you *don't* call this, the entity will be leaked. An entity will still be
+    /// created, but nothing will be put on it.
     fn build(self) -> Entity;
 }
 
@@ -37,12 +50,23 @@ struct EntityBuilderComponentTracker {
 }
 
 impl EntityBuilderComponentTracker {
-    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+    fn insert<C: Component>(
+        &mut self,
+        component: C,
+        comp_types: &BTreeSet<TypeIdWrapper>,
+    ) -> Option<C> {
         let tid = TypeIdWrapper::of::<C>();
+        if !comp_types.contains(&tid) {
+            // Technically, no UB or anything happens if this doesn't panic, but it *is* an easy mistake to make
+            // and your events won't fire.
+            panic!("tried to add a component of type {} to an entity, but that type was not registered", tid.type_name);
+        }
+
         let boxc = Box::new(component) as _;
         if let Some(clobberee) = self.component_ids.get(&tid) {
             let old = std::mem::replace(&mut self.components[*clobberee], boxc);
-            Some(*old.downcast().unwrap())
+            // SAFETY: type guards prevent this from being of the wrong type
+            Some(unsafe { *old.downcast().unwrap_unchecked() })
         } else {
             let idx = self.components.len();
             self.components.push(boxc);
@@ -74,7 +98,8 @@ impl<'w> ImmediateEntityBuilder<'w> {
 
 impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
     fn insert<C: Component>(&mut self, component: C) -> Option<C> {
-        self.tracker.insert(component)
+        self.tracker
+            .insert(component, &self.world.known_component_types)
     }
 
     fn len(&self) -> usize {
@@ -115,7 +140,8 @@ impl<'a, 'w> LazyEntityBuilder<'a, 'w> {
 
 impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
     fn insert<C: Component>(&mut self, component: C) -> Option<C> {
-        self.tracker.insert(component)
+        self.tracker
+            .insert(component, &self.accessor.world.known_component_types)
     }
 
     fn len(&self) -> usize {

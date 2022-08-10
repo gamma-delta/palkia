@@ -3,14 +3,21 @@ use std::sync::atomic::{AtomicU64, AtomicUsize};
 
 use crossbeam::channel;
 
-use crate::allocator::EntityAllocator;
-use crate::builder::ImmediateEntityBuilder;
 use crate::callback::{CallbackWorldAccess, Callbacks};
 use crate::component::{Component, HandlerBuilder};
 use crate::entities::{Entity, EntityAssoc};
 use crate::messages::{ListenerWorldAccess, Message, MsgHandlerInner};
 use crate::prelude::Query;
 use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
+use crate::{
+    access::{AccessDispatcher, AccessEntityStats},
+    allocator::EntityAllocator,
+    entities::EntityIter,
+};
+use crate::{
+    access::{AccessQuery, AccessResources},
+    builder::ImmediateEntityBuilder,
+};
 use crate::{loop_panic, ToTypeIdWrapper, TypeIdWrapper};
 
 pub struct World {
@@ -99,43 +106,11 @@ impl World {
         e
     }
 
-    /// Dispatch a message to the given entity and return the modified message.
-    ///
-    /// Panics if the entity is dead.
-    pub fn dispatch<M: Message>(&self, target: Entity, msg: M) -> M {
-        dispatch_inner(&ListenerWorldAccess::new(self), target, msg)
-    }
-
     /// Dispatch a message to all entities, cloning it for each entity.
     pub fn dispatch_to_all<M: Message + Clone>(&self, msg: M) {
         for (e, _) in self.entities.iter() {
             self.dispatch(e, msg.clone());
         }
-    }
-
-    /// Query the given entity for the given elements.
-    ///
-    /// Panics if the entity is dead.
-    pub fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
-        let comps = self.entities.get(interrogatee).unwrap_or_else(|| {
-            panic!("{:?} could not be queried because it is dead", interrogatee)
-        });
-        Q::query(interrogatee, comps)
-    }
-
-    /// Check if the given entity is, at this moment, still alive.
-    pub fn is_alive(&self, e: Entity) -> bool {
-        self.entities.get(e).is_some()
-    }
-
-    /// Get the number of components on the given entity.
-    ///
-    /// Panics if the entity is dead.
-    pub fn len_of(&self, e: Entity) -> usize {
-        self.entities
-            .get(e)
-            .unwrap_or_else(|| panic!("cannot get len of {:?} because it is dead", e))
-            .len()
     }
 
     /// Insert a resource into the world, returning the old value if it existed.
@@ -154,16 +129,6 @@ impl World {
         self.resources.insert(R::default())
     }
 
-    /// Get immutable access to the given resource.
-    pub fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
-        self.resources.read()
-    }
-
-    /// Get mutable access to the given resource.
-    pub fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
-        self.resources.write()
-    }
-
     /// With ownership, get direct mutable access to the given resource.
     pub fn get_resource<R: Resource>(&mut self) -> Option<&mut R> {
         self.resources.get()
@@ -172,11 +137,6 @@ impl World {
     /// With ownership, remove and return the given resource
     pub fn remove_resource<R: Resource>(&mut self) -> Option<R> {
         self.resources.remove()
-    }
-
-    /// Get the number of entities in the world.
-    pub fn len(&self) -> usize {
-        self.entities.len()
     }
 
     /// Apply any and all lazy updates.
@@ -225,6 +185,55 @@ impl World {
         }
     }
 }
+
+impl AccessDispatcher for World {
+    fn dispatch<M: Message>(&self, target: Entity, msg: M) -> M {
+        dispatch_inner(&ListenerWorldAccess::new(self), target, msg)
+    }
+}
+
+impl AccessEntityStats for World {
+    fn len(&self) -> usize {
+        self.entities.len()
+    }
+
+    fn is_alive(&self, entity: Entity) -> bool {
+        self.entities.get(entity).is_some()
+    }
+
+    fn len_of(&self, entity: Entity) -> usize {
+        let assoc = self.entities.get(entity).expect("entity was not alive");
+        assoc.len()
+    }
+
+    fn iter(&self) -> crate::entities::EntityIter<'_> {
+        EntityIter::new(self)
+    }
+}
+
+impl AccessQuery for World {
+    fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
+        let comps = self.entities.get(interrogatee).unwrap_or_else(|| {
+            panic!("{:?} could not be queried because it is dead", interrogatee)
+        });
+        Q::query(interrogatee, comps)
+    }
+}
+
+impl AccessResources for World {
+    fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
+        self.resources.read()
+    }
+
+    fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
+        self.resources.write()
+    }
+
+    fn contains_resource<R: Resource>(&self) -> bool {
+        self.resources.contains::<R>()
+    }
+}
+
 pub(crate) enum LazyUpdate {
     SpawnEntity(Vec<Box<dyn Component>>, Entity),
     DespawnEntity(Entity),

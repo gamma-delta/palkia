@@ -1,8 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+pub mod access;
 mod allocator;
 pub mod builder;
-mod callback;
+pub mod callback;
 pub mod component;
 pub mod entities;
 pub mod messages;
@@ -98,6 +99,7 @@ fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
 }
 
 pub mod prelude {
+    pub use crate::access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources};
     pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
     pub use crate::callback::CallbackWorldAccess;
     pub use crate::component::{Component, HandlerBuilder};

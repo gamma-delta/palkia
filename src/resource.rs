@@ -78,6 +78,10 @@ impl ResourceMap {
             )
             .map(|old| *old.into_inner().unwrap().downcast().unwrap())
     }
+
+    pub fn contains<T: Resource>(&self) -> bool {
+        self.map.contains_key(&TypeIdWrapper::of::<T>())
+    }
 }
 
 /// Opaque wrapper for an immutable reference to something in a resource map.
