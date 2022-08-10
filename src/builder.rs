@@ -107,12 +107,10 @@ impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
     }
 
     fn build(self) -> Entity {
-        let here = self.world.entities.get_mut(self.entity).unwrap();
-        debug_assert_eq!(here.components().len(), 0); // doing this instead of is_empty so if it fails I can see the len
-        *here = EntityAssoc::new(self.tracker.components);
-
+        self.world
+            .entities
+            .finish_spawn(self.entity, EntityAssoc::new(self.tracker.components));
         self.world.run_creation_callbacks(self.entity);
-
         self.entity
     }
 }
@@ -149,7 +147,7 @@ impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
     }
 
     fn build(self) -> Entity {
-        self.accessor.queue_update(LazyUpdate::SpawnEntity(
+        self.accessor.queue_update(LazyUpdate::FinishEntity(
             self.tracker.components,
             self.entity,
         ));

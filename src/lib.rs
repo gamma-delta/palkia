@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 pub mod access;
-mod allocator;
 pub mod builder;
 pub mod callback;
 pub mod component;
