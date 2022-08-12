@@ -6,7 +6,7 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
 use downcast::{downcast, AnySync};
 
-use crate::TypeIdWrapper;
+use crate::{ToTypeIdWrapper, TypeIdWrapper};
 
 /// Marker trait for resources so you don't accidentally put the wrong thing in worlds.
 pub trait Resource: AnySync {}
@@ -79,8 +79,19 @@ impl ResourceMap {
             .map(|old| *old.into_inner().unwrap().downcast().unwrap())
     }
 
+    pub fn insert_raw(&mut self, resource: Box<dyn Resource>) -> Option<Box<dyn Resource>> {
+        let tid = (*resource).type_id_wrapper();
+        self.map
+            .insert(tid, RwLock::new(resource))
+            .map(|old| old.into_inner().unwrap())
+    }
+
     pub fn contains<T: Resource>(&self) -> bool {
         self.map.contains_key(&TypeIdWrapper::of::<T>())
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (TypeIdWrapper, &RwLock<Box<dyn Resource>>)> + '_ {
+        self.map.iter().map(|(tid, res)| (*tid, res))
     }
 }
 

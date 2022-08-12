@@ -1,6 +1,211 @@
 use palkia::prelude::*;
-use ron::{ser::PrettyConfig, Options};
 use serde::{Deserialize, Serialize};
+
+#[test]
+fn entity_roundtrip() {
+    let mut world1 = World::new();
+    world1.register_component::<Counter>();
+    world1.register_component::<Duplicator>();
+
+    world1.spawn().with(Counter::default()).build();
+    world1.spawn().with(Duplicator).build();
+    world1
+        .spawn()
+        .with(Counter::default())
+        .with(Duplicator)
+        .build();
+
+    for _ in 0..10 {
+        world1.dispatch_to_all(MsgTick);
+        world1.finalize();
+    }
+
+    let entities = world1.iter().collect::<Vec<_>>();
+
+    let bin = ser_world(&mut world1);
+
+    let mut world2 = World::new();
+    world2.register_component::<Counter>();
+    world2.register_component::<Duplicator>();
+
+    de_world(&mut world2, &bin);
+
+    assert_eq!(world1.len(), world2.len());
+    for e in entities {
+        assert_eq!(
+            world1.len_of(e),
+            world2.len_of(e),
+            "{:?} had mismatching component counts",
+            e
+        );
+        if let Some(w1_counter) = world1.query::<&Counter>(e) {
+            let w2_counter = world2.query::<&Counter>(e).unwrap_or_else(|| {
+                panic!("{:?} had a counter before serialization but not after", e)
+            });
+            assert_eq!(
+                w1_counter.as_ref(),
+                w2_counter.as_ref(),
+                "{:?}'s values of counter mismatched",
+                e
+            );
+        }
+        if world1.query::<&Duplicator>(e).is_some() {
+            assert!(
+                world2.query::<&Duplicator>(e).is_some(),
+                "{:?} had a duplicator before serialization but not after",
+                e
+            )
+        }
+    }
+}
+
+#[test]
+fn skipping() {
+    let mut world1 = World::new();
+    world1.register_component::<Counter>();
+    world1.register_component::<Duplicator>();
+    world1.register_component::<CmpNotSerialized>();
+
+    world1.spawn().with(Counter::default()).build();
+    world1.spawn().with(Duplicator).build();
+    let not_ser = world1.spawn().with(CmpNotSerialized).build();
+    let kinda_ser = world1
+        .spawn()
+        .with(Counter::default())
+        .with(CmpNotSerialized)
+        .build();
+
+    let bin = ser_world(&mut world1);
+
+    let mut world2 = World::new();
+    world2.register_component::<Counter>();
+    world2.register_component::<Duplicator>();
+    world2.register_component::<CmpNotSerialized>();
+
+    de_world(&mut world2, &bin);
+
+    // It serializes every entity ...
+    assert_eq!(world2.len(), 4);
+    // but not all the components
+    assert_eq!(world2.len_of(not_ser), 0);
+    assert_eq!(world2.len_of(kinda_ser), 1)
+}
+
+#[test]
+fn resource_roundtrip() {
+    let mut world1 = World::new();
+    world1.insert_resource(AResource {
+        foo: 7604,
+        bar: 69420,
+    });
+    world1.insert_resource(ResNotSerialized);
+
+    let bin = ser_world(&mut world1);
+
+    let mut world2 = World::new();
+    de_world(&mut world2, &bin);
+
+    let a_res1 = world1.get_resource::<AResource>().unwrap();
+    let a_res2 = world2.get_resource::<AResource>().unwrap();
+    assert_eq!(a_res1, a_res2);
+
+    assert!(!world2.contains_resource::<ResNotSerialized>());
+}
+
+#[test]
+fn roundtrip_all() {
+    let mut world1 = World::new();
+    world1.register_component::<Counter>();
+    world1.register_component::<Duplicator>();
+
+    world1.insert_resource(AResource {
+        foo: 0xF00,
+        bar: 0xBA2,
+    });
+    world1.insert_resource(DupliCounter::default());
+
+    world1.spawn().with(Counter::default()).build();
+    world1.spawn().with(Duplicator).build();
+    world1
+        .spawn()
+        .with(Counter::default())
+        .with(Duplicator)
+        .build();
+
+    for _ in 0..10 {
+        world1.dispatch_to_all(MsgTick);
+        world1.finalize();
+    }
+
+    let entities = world1.iter().collect::<Vec<_>>();
+
+    let bin = ser_world(&mut world1);
+
+    let mut world2 = World::new();
+    world2.register_component::<Counter>();
+    world2.register_component::<Duplicator>();
+
+    de_world(&mut world2, &bin);
+
+    assert_eq!(world1.len(), world2.len());
+    for e in entities {
+        assert_eq!(
+            world1.len_of(e),
+            world2.len_of(e),
+            "{:?} had mismatching component counts",
+            e
+        );
+
+        if let Some(w1_counter) = world1.query::<&Counter>(e) {
+            let w2_counter = world2.query::<&Counter>(e).unwrap_or_else(|| {
+                panic!("{:?} had a counter before serialization but not after", e)
+            });
+            assert_eq!(
+                w1_counter.as_ref(),
+                w2_counter.as_ref(),
+                "{:?}'s values of counter mismatched",
+                e
+            );
+        }
+        if world1.query::<&Duplicator>(e).is_some() {
+            assert!(
+                world2.query::<&Duplicator>(e).is_some(),
+                "{:?} had a duplicator before serialization but not after",
+                e
+            )
+        }
+    }
+
+    let a_res1 = world1.get_resource::<AResource>().unwrap();
+    let a_res2 = world2.get_resource::<AResource>().unwrap();
+    assert_eq!(a_res1, a_res2);
+
+    let dc1 = world1.get_resource::<DupliCounter>().unwrap();
+    let dc2 = world2.get_resource::<DupliCounter>().unwrap();
+    assert_eq!(dc1, dc2);
+}
+
+// Serde helpers
+
+fn ser_world(world: &mut World) -> Vec<u8> {
+    let mut writer = Vec::new();
+    let mut serializer = bincode::Serializer::new(&mut writer, bincode::DefaultOptions::new());
+    world.serialize(SerdeInstrs, &mut serializer).unwrap();
+    writer
+}
+
+fn de_world(world: &mut World, bin: &[u8]) {
+    let mut deserializer = bincode::Deserializer::from_slice(&bin, bincode::DefaultOptions::new());
+    world.deserialize(SerdeInstrs, &mut deserializer).unwrap();
+}
+
+// World serde impl
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+enum ResourceKey {
+    AResource,
+    DupliCounter,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 enum ComponentKey {
@@ -10,7 +215,7 @@ enum ComponentKey {
 
 struct SerdeInstrs;
 
-impl WorldSerdeInstructions<ComponentKey> for SerdeInstrs {
+impl WorldSerdeInstructions<ResourceKey, ComponentKey> for SerdeInstrs {
     fn serialize_entity<S: serde::Serializer>(
         &self,
         mut ctx: EntitySerContext<'_, '_, ComponentKey, S>,
@@ -41,71 +246,39 @@ impl WorldSerdeInstructions<ComponentKey> for SerdeInstrs {
             ComponentKey::Duplicator => ctx.accept::<Duplicator>(),
         }
     }
-}
 
-#[test]
-fn entity_roundtrip() {
-    let mut world1 = World::new();
-    world1.register_component::<Counter>();
-    world1.register_component::<Duplicator>();
+    fn serialize_resource<S: serde::Serializer>(
+        &self,
+        mut ctx: ResourceSerContext<'_, '_, ResourceKey, S>,
+    ) -> Result<(), S::Error> {
+        ctx.try_serialize::<AResource>(ResourceKey::AResource)?;
+        ctx.try_serialize::<DupliCounter>(ResourceKey::DupliCounter)?;
 
-    world1.spawn().with(Counter::default()).build();
-    world1.spawn().with(Duplicator).build();
-    world1
-        .spawn()
-        .with(Counter::default())
-        .with(Duplicator)
-        .build();
-
-    for _ in 0..3 {
-        world1.dispatch_to_all(MsgTick);
-        world1.finalize();
+        Ok(())
     }
 
-    let entities = world1.iter().collect::<Vec<_>>();
+    fn resource_count(&self, world: &World) -> Option<usize> {
+        let count = world.contains_resource::<AResource>() as usize
+            + world.contains_resource::<DupliCounter>() as usize;
 
-    let ronstr = {
-        let mut writer = Vec::new();
-        let mut serializer = ron::Serializer::with_options(
-            &mut writer,
-            Some(PrettyConfig::default()),
-            Options::default(),
-        )
-        .unwrap();
-        world1.serialize(SerdeInstrs, &mut serializer).unwrap();
-        String::from_utf8(writer).unwrap()
-    };
+        Some(count)
+    }
 
-    let mut world2 = World::new();
-    world2.register_component::<Counter>();
-    world2.register_component::<Duplicator>();
-
+    fn deserialize_resource<'a, 'de, M: serde::de::MapAccess<'de>>(
+        &'a self,
+        ctx: &mut ResourceDeContext<'_, 'de, M, ResourceKey>,
+    ) -> Result<(), M::Error>
+    where
+        'de: 'a,
     {
-        let mut deserializer = ron::Deserializer::from_str(&ronstr).unwrap();
-        world2.deserialize(SerdeInstrs, &mut deserializer).unwrap();
-    }
-
-    for e in entities {
-        if let Some(w1_counter) = world1.query::<&Counter>(e) {
-            let w2_counter = world2.query::<&Counter>(e).unwrap_or_else(|| {
-                panic!("{:?} had a counter before serialization but not after", e)
-            });
-            assert_eq!(
-                w1_counter.as_ref(),
-                w2_counter.as_ref(),
-                "{:?}'s values of counter mismatched",
-                e
-            );
-        }
-        if world1.query::<&Duplicator>(e).is_some() {
-            assert!(
-                world2.query::<&Duplicator>(e).is_some(),
-                "{:?} had a duplicator before serialization but not after",
-                e
-            )
+        match ctx.key() {
+            ResourceKey::AResource => ctx.accept::<AResource>(),
+            ResourceKey::DupliCounter => ctx.accept::<DupliCounter>(),
         }
     }
 }
+
+// ECM stuff
 
 #[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 struct Counter {
@@ -134,10 +307,42 @@ impl Component for Duplicator {
     {
         builder.handle_read(|_, msg: MsgTick, _, access| {
             access.lazy_spawn().with(Duplicator).build();
+
+            if let Ok(mut duplicounter) = access.write_resource::<DupliCounter>() {
+                duplicounter.count += 1;
+            }
+
             msg
         })
     }
 }
+
+struct CmpNotSerialized;
+
+impl Component for CmpNotSerialized {
+    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+    where
+        Self: Sized,
+    {
+        builder
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct AResource {
+    foo: i32,
+    bar: i32,
+}
+impl Resource for AResource {}
+
+#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct DupliCounter {
+    count: u64,
+}
+impl Resource for DupliCounter {}
+
+struct ResNotSerialized;
+impl Resource for ResNotSerialized {}
 
 #[derive(Clone)]
 struct MsgTick;

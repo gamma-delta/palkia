@@ -22,11 +22,9 @@ serde = { version = "1.0.143", optional = true, features = ["derive"] }
 
 [dev-dependencies]
 aglet = "0.1.1"
+bincode = "1.3.3"
 crossterm = "0.24.0"
 fastrand = "1.7.0"
-# For serde tests, cause it was the only human-readable format i could find that accepts
-# arbitrary keys in maps
-ron = "0.7.1"
 
 [features]
 default = ["serde"]

@@ -112,6 +112,9 @@ pub mod prelude {
     pub use crate::query::Query;
     pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
     #[cfg(feature = "serde")]
-    pub use crate::serde::{EntityDeContext, EntitySerContext, SerKey, WorldSerdeInstructions};
+    pub use crate::serde::{
+        EntityDeContext, EntitySerContext, ResourceDeContext, ResourceSerContext, SerKey,
+        WorldSerdeInstructions,
+    };
     pub use crate::world::World;
 }
