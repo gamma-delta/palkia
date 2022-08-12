@@ -43,13 +43,13 @@ pub trait EntityBuilder: Sized {
 }
 
 #[derive(Default)]
-struct EntityBuilderComponentTracker {
-    components: Vec<Box<dyn Component>>,
+pub(crate) struct EntityBuilderComponentTracker {
+    pub(crate) components: Vec<Box<dyn Component>>,
     component_ids: BTreeMap<TypeIdWrapper, usize>,
 }
 
 impl EntityBuilderComponentTracker {
-    fn insert<C: Component>(
+    pub(crate) fn insert<C: Component>(
         &mut self,
         component: C,
         comp_types: &BTreeSet<TypeIdWrapper>,

@@ -19,8 +19,6 @@ generational-arena = "0.2.8"
 indexmap = "1.9.1"
 
 serde = { version = "1.0.143", optional = true, features = ["derive"] }
-serde-value = { version = "0.7.0", optional = true }
-bimap = { version = "0.6.2", optional = true }
 
 [dev-dependencies]
 aglet = "0.1.1"
@@ -32,10 +30,4 @@ ron = "0.7.1"
 
 [features]
 default = ["serde"]
-serde = [
-"dep:serde",
-"dep:serde-value",
-"dep:bimap",
-"ahash/serde",
-"generational-arena/serde",
-]
+serde = ["dep:serde", "ahash/serde", "generational-arena/serde"]

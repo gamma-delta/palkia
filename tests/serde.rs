@@ -1,67 +1,114 @@
 use palkia::prelude::*;
+use ron::{ser::PrettyConfig, Options};
 use serde::{Deserialize, Serialize};
 
-/*
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+enum ComponentKey {
+    Counter,
+    Duplicator,
+}
+
+struct SerdeInstrs;
+
+impl WorldSerdeInstructions<ComponentKey> for SerdeInstrs {
+    fn serialize_entity<S: serde::Serializer>(
+        &self,
+        mut ctx: EntitySerContext<'_, '_, ComponentKey, S>,
+    ) -> Result<(), S::Error> {
+        ctx.try_serialize::<Counter>(ComponentKey::Counter)?;
+        ctx.try_serialize::<Duplicator>(ComponentKey::Duplicator)?;
+
+        Ok(())
+    }
+
+    fn component_count(&self, e: Entity, world: &World) -> Option<usize> {
+        // I'm not sure of a less horrible way to do this
+        let count = world.query::<&Counter>(e).is_some() as usize
+            + world.query::<&Duplicator>(e).is_some() as usize;
+
+        Some(count)
+    }
+
+    fn deserialize_entity<'a, 'de, M: serde::de::MapAccess<'de>>(
+        &'a self,
+        ctx: &mut EntityDeContext<'_, 'de, M, ComponentKey>,
+    ) -> Result<(), M::Error>
+    where
+        'a: 'de,
+    {
+        match ctx.key() {
+            ComponentKey::Counter => ctx.accept::<Counter>(),
+            ComponentKey::Duplicator => ctx.accept::<Duplicator>(),
+        }
+    }
+}
+
 #[test]
-fn ser_entities() {
-    let mut world = World::new();
+fn entity_roundtrip() {
+    let mut world1 = World::new();
+    world1.register_component::<Counter>();
+    world1.register_component::<Duplicator>();
 
-    world.register_component::<Counter>();
-    world.register_component::<Duplicator>();
-
-    world.spawn().with(Counter::default()).build();
-    world.spawn().with(Duplicator).build();
-    world
+    world1.spawn().with(Counter::default()).build();
+    world1.spawn().with(Duplicator).build();
+    world1
         .spawn()
         .with(Counter::default())
         .with(Duplicator)
         .build();
 
     for _ in 0..3 {
-        world.dispatch_to_all(MsgTick);
-        world.finalize();
+        world1.dispatch_to_all(MsgTick);
+        world1.finalize();
     }
+
+    let entities = world1.iter().collect::<Vec<_>>();
 
     let ronstr = {
         let mut writer = Vec::new();
-        let mut serializer =
-            ron::ser::Serializer::with_options(&mut writer, None, ron::Options::default()).unwrap();
-        world
-            .serialize_entities::<_, &'static str>(&mut serializer)
-            .unwrap();
-
-        // Roundtrip thru ron to make sure the map is sorted
-        let ronval = ron::de::from_bytes::<ron::Value>(&writer).unwrap();
-        ron::ser::to_string(&ronval).unwrap()
+        let mut serializer = ron::Serializer::with_options(
+            &mut writer,
+            Some(PrettyConfig::default()),
+            Options::default(),
+        )
+        .unwrap();
+        world1.serialize(SerdeInstrs, &mut serializer).unwrap();
+        String::from_utf8(writer).unwrap()
     };
 
-    let expect = r#"
-{
-    [0,0]: { "counter": {"count": 3} },
-    [1,0]: { "duplicator": () },
-    [2,0]: { "counter": {"count": 3}, "duplicator": () },
-    [3,0]: { "duplicator": () },
-    [4,0]: { "duplicator": () },
-    [5,0]: { "duplicator": () },
-    [6,0]: { "duplicator": () },
-    [7,0]: { "duplicator": () },
-    [8,0]: { "duplicator": () },
-    [9,0]: { "duplicator": () },
-    [10,0]: { "duplicator": () },
-    [11,0]: { "duplicator": () },
-    [12,0]: { "duplicator": () },
-    [13,0]: { "duplicator": () },
-    [14,0]: { "duplicator": () },
-    [15,0]: { "duplicator": () },
-    [16,0]: { "duplicator": () }
-}
-"#
-    .replace(char::is_whitespace, "");
-    assert_eq!(ronstr.as_str(), expect.as_str());
-}
-*/
+    let mut world2 = World::new();
+    world2.register_component::<Counter>();
+    world2.register_component::<Duplicator>();
 
-#[derive(Serialize, Deserialize, Default, PartialEq, Eq)]
+    {
+        let deserializer = ron::Deserializer::from_str(&ronstr).unwrap();
+        world2.deserialize(&SerdeInstrs, &mut deserializer).unwrap();
+    }
+
+    for e in entities {
+        if let Some(w1_counter) = world1.query::<&Counter>(e) {
+            let w2_counter = world2.query::<&Counter>(e).unwrap_or_else(|| {
+                panic!("{:?} had a counter before serialization but not after", e)
+            });
+            assert_eq!(
+                w1_counter.as_ref(),
+                w2_counter.as_ref(),
+                "{:?}'s values of counter mismatched",
+                e
+            );
+        }
+        if let Some(w1_dup) = world1.query::<&Duplicator>(e) {
+            let w2_dup = world2.query::<&Duplicator>(e).unwrap_or_else(|| {
+                panic!(
+                    "{:?} had a duplicator before serialization but not after",
+                    e
+                )
+            });
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
 struct Counter {
     count: u64,
 }
@@ -71,22 +118,14 @@ impl Component for Counter {
     where
         Self: Sized,
     {
-        builder
-            .handle_write(|this, msg: MsgTick, _, _| {
-                this.count += 1;
-                msg
-            })
-            .handle_read(Counter::ser_handler)
+        builder.handle_write(|this, msg: MsgTick, _, _| {
+            this.count += 1;
+            msg
+        })
     }
 }
 
-impl SerDeComponent<&'static str> for Counter {
-    fn get_id() -> &'static str {
-        "counter"
-    }
-}
-
-#[derive(Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct Duplicator;
 
 impl Component for Duplicator {
@@ -94,18 +133,10 @@ impl Component for Duplicator {
     where
         Self: Sized,
     {
-        builder
-            .handle_read(|_, msg: MsgTick, _, access| {
-                access.lazy_spawn().with(Duplicator).build();
-                msg
-            })
-            .handle_read(Duplicator::ser_handler)
-    }
-}
-
-impl SerDeComponent<&'static str> for Duplicator {
-    fn get_id() -> &'static str {
-        "duplicator"
+        builder.handle_read(|_, msg: MsgTick, _, access| {
+            access.lazy_spawn().with(Duplicator).build();
+            msg
+        })
     }
 }
 

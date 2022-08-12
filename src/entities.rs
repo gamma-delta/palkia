@@ -29,6 +29,13 @@ pub(crate) struct EntityStorage {
 }
 
 impl EntityStorage {
+    pub(crate) fn new(allocator: Arena<()>, assocs: AHashMap<Entity, EntityAssoc>) -> Self {
+        Self {
+            allocator: RwLock::new(allocator),
+            assocs,
+        }
+    }
+
     /// Immediately spawn an entity with the given data.
     pub fn spawn(&mut self, assoc: EntityAssoc) -> Entity {
         let alloc = self.allocator.get_mut().unwrap();
