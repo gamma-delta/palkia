@@ -68,11 +68,14 @@ impl World {
     /// otherwise.
     pub fn deserialize<'a, 'de, W: WorldSerdeInstructions<Id>, D: Deserializer<'de>, Id: SerKey>(
         &'a mut self,
-        instrs: &'a W,
+        instrs: W,
         deserializer: D,
-    ) -> Result<(), D::Error> {
+    ) -> Result<(), D::Error>
+    where
+        'de: 'a,
+    {
         let de_world = {
-            let seed = DeWorldDeserializer::new(instrs, &self.known_component_types);
+            let seed = DeWorldDeserializer::new(&instrs, &self.known_component_types);
             seed.deserialize(deserializer)?
         };
 
@@ -128,7 +131,7 @@ pub trait WorldSerdeInstructions<Id: SerKey> {
         ctx: &mut EntityDeContext<'_, 'de, M, Id>,
     ) -> Result<(), M::Error>
     where
-        'a: 'de;
+        'de: 'a;
 }
 
 /// Types that can be used as an id when serializing components and resources.
@@ -197,7 +200,7 @@ impl<'a, Id: SerKey, W: WorldSerdeInstructions<Id>> DeWorldDeserializer<'a, Id, 
 impl<'a, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> DeserializeSeed<'de>
     for DeWorldDeserializer<'a, Id, W>
 where
-    'a: 'de,
+    'de: 'a,
 {
     type Value = DeWorld<Id>;
 
@@ -212,7 +215,7 @@ where
 impl<'a, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> Visitor<'de>
     for DeWorldDeserializer<'a, Id, W>
 where
-    'a: 'de,
+    'de: 'a,
 {
     type Value = DeWorld<Id>;
 

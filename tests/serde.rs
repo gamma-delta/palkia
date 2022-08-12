@@ -34,7 +34,7 @@ impl WorldSerdeInstructions<ComponentKey> for SerdeInstrs {
         ctx: &mut EntityDeContext<'_, 'de, M, ComponentKey>,
     ) -> Result<(), M::Error>
     where
-        'a: 'de,
+        'de: 'a,
     {
         match ctx.key() {
             ComponentKey::Counter => ctx.accept::<Counter>(),
@@ -81,8 +81,8 @@ fn entity_roundtrip() {
     world2.register_component::<Duplicator>();
 
     {
-        let deserializer = ron::Deserializer::from_str(&ronstr).unwrap();
-        world2.deserialize(&SerdeInstrs, &mut deserializer).unwrap();
+        let mut deserializer = ron::Deserializer::from_str(&ronstr).unwrap();
+        world2.deserialize(SerdeInstrs, &mut deserializer).unwrap();
     }
 
     for e in entities {
@@ -97,13 +97,12 @@ fn entity_roundtrip() {
                 e
             );
         }
-        if let Some(w1_dup) = world1.query::<&Duplicator>(e) {
-            let w2_dup = world2.query::<&Duplicator>(e).unwrap_or_else(|| {
-                panic!(
-                    "{:?} had a duplicator before serialization but not after",
-                    e
-                )
-            });
+        if world1.query::<&Duplicator>(e).is_some() {
+            assert!(
+                world2.query::<&Duplicator>(e).is_some(),
+                "{:?} had a duplicator before serialization but not after",
+                e
+            )
         }
     }
 }

@@ -224,7 +224,7 @@ impl<'w, Id: SerKey, W: WorldSerdeInstructions<Id>> EntitiesDeWrapper<'w, Id, W>
 impl<'w, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> DeserializeSeed<'de>
     for EntitiesDeWrapper<'w, Id, W>
 where
-    'w: 'de,
+    'de: 'w,
 {
     type Value = AHashMap<Entity, EntityBuilderComponentTracker>;
 
@@ -240,7 +240,7 @@ where
 impl<'w, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> Visitor<'de>
     for EntitiesDeWrapper<'w, Id, W>
 where
-    'w: 'de,
+    'de: 'w,
 {
     type Value = AHashMap<Entity, EntityBuilderComponentTracker>;
 
@@ -285,7 +285,7 @@ impl<'w, Id: SerKey, W: WorldSerdeInstructions<Id>> EntityDeWrapper<'w, Id, W> {
 impl<'w, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> DeserializeSeed<'de>
     for EntityDeWrapper<'w, Id, W>
 where
-    'w: 'de,
+    'de: 'w,
 {
     type Value = EntityBuilderComponentTracker;
 
@@ -300,7 +300,7 @@ where
 // again it is its own visitor
 impl<'w, 'de, Id: SerKey, W: WorldSerdeInstructions<Id>> Visitor<'de> for EntityDeWrapper<'w, Id, W>
 where
-    'w: 'de,
+    'de: 'w,
 {
     type Value = EntityBuilderComponentTracker;
 
