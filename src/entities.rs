@@ -17,12 +17,14 @@ pub struct Entity(pub(crate) Index);
 /// Allocator and storage for entities.
 ///
 /// This creates indices with an allocator protected by a lock, and maps them to the actual (unlocked) data bundles
-/// in a separate map. This way we can get accurate indices for lazily created entities.
+/// in a separate map. This way we can get accurate indices for lazily created entities and less performance overhead
+/// than locking and unlocking for the assocs all the time.
 ///
-/// An entity present in the allocator but not the assocs means it's half-alive.
+/// An entity present in the allocator but not the assocs means it's only been lazily created.
 #[derive(Default)]
 pub(crate) struct EntityStorage {
-    allocator: RwLock<Arena<()>>,
+    /// This is only public for serde
+    pub allocator: RwLock<Arena<()>>,
     assocs: AHashMap<Entity, EntityAssoc>,
 }
 

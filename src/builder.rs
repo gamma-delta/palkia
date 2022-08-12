@@ -38,8 +38,7 @@ pub trait EntityBuilder: Sized {
 
     /// Consume this and insert the entity into the world, returning it to the caller.
     ///
-    /// Note that if you *don't* call this, the entity will be leaked. An entity will still be
-    /// created, but nothing will be put on it.
+    /// Note that if you *don't* call this, there will be panics.
     fn build(self) -> Entity;
 }
 
