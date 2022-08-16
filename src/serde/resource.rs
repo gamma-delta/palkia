@@ -27,7 +27,7 @@ where
     pub map: &'a mut S::SerializeMap,
     /// The resource being serialized.
     pub resource: &'w dyn Resource,
-    /// Ids that have already been used. This is used by [`ComponentSerContext::try_serialize`] to check your work
+    /// Ids that have already been used. This is used by [`ResourceSerContext::try_serialize`] to check your work
     /// and make sure you don't accidentally use the same key twice.
     extant_ids: AHashMap<Id, TypeIdWrapper>,
 }
@@ -115,6 +115,7 @@ impl<'w, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>> 
 // === DESERIALIZATION ===
 // =======================
 
+/// Helper struct for deserializing resources.
 pub struct ResourceDeContext<'a, 'de, M: MapAccess<'de>, Id: SerKey> {
     map: M,
     key: Id,

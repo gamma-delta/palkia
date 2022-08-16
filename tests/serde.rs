@@ -1,3 +1,5 @@
+#![cfg(feature = "serde")]
+
 use palkia::prelude::*;
 use serde::{Deserialize, Serialize};
 

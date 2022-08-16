@@ -1,3 +1,5 @@
+//! Data sent to an entity and forwarded to each of its components, mutated along the way.
+
 use crossbeam::channel;
 use downcast::{downcast, Any};
 

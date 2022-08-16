@@ -103,6 +103,7 @@ fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
 }
 
 pub mod prelude {
+    //! Handy module to glob-import and get everything in the crate.
     pub use crate::access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources};
     pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
     pub use crate::callback::CallbackWorldAccess;

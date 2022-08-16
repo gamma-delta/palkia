@@ -1,3 +1,5 @@
+//! Run code when spawning or despawning an entity with a given component type.
+
 use crate::access::{AccessEntityStats, AccessQuery, AccessResources};
 use crate::prelude::{Component, Entity, Query, World};
 use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};

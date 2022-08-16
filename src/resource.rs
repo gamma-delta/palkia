@@ -1,3 +1,5 @@
+//! Singleton data stored on the world.
+
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
@@ -8,7 +10,13 @@ use downcast::{downcast, AnySync};
 
 use crate::{ToTypeIdWrapper, TypeIdWrapper};
 
-/// Marker trait for resources so you don't accidentally put the wrong thing in worlds.
+/// A resource is data attached to a [World](crate::world::World). There is up to one instance of a given Resource type
+/// per world.
+///
+/// This is handy for things you need across many entities, like position caches, assets, settings, save data ...
+/// anything that wouldn't make sense to have more than one of.
+///
+/// The trait is more or less a marker trait, so you don't accidentally put the wrong thing in worlds.
 pub trait Resource: AnySync {}
 downcast!(dyn Resource);
 
@@ -95,7 +103,7 @@ impl ResourceMap {
     }
 }
 
-/// Opaque wrapper for an immutable reference to something in a resource map.
+/// Opaque wrapper for an immutable reference to a resource.
 pub struct ReadResource<'a, T: ?Sized>(RwLockReadGuard<'a, Box<dyn Resource>>, PhantomData<T>);
 impl<'a, T: Resource> Deref for ReadResource<'a, T> {
     type Target = T;
@@ -106,7 +114,7 @@ impl<'a, T: Resource> Deref for ReadResource<'a, T> {
     }
 }
 
-/// Opaque wrapper for a mutable reference to something in a resource map.
+/// Opaque wrapper for a mutable reference to a resource.
 pub struct WriteResource<'a, T: ?Sized>(RwLockWriteGuard<'a, Box<dyn Resource>>, PhantomData<T>);
 impl<'a, T: Resource> Deref for WriteResource<'a, T> {
     type Target = T;
@@ -123,10 +131,17 @@ impl<'a, T: Resource> DerefMut for WriteResource<'a, T> {
     }
 }
 
+/// Problems when trying to get a resource from a world.
 #[derive(Debug, Clone, Copy)]
 pub enum ResourceLookupError {
+    /// There isn't anything of that resource type
     NotFound,
+    /// Either there's already an immutable reference to that resource and you tried to get a mutable one,
+    /// or there was already a mutable reference to that resource and you tried to get an immutable one.
     Locked,
+    /// The lock was poisoned; something panicked while the lock was held.
+    ///
+    /// This should *probably* never happen.
     Poisoned,
 }
 

@@ -1,3 +1,5 @@
+//! Get components off of entities directly, in a more lightweight way than message passing.
+
 use std::marker::PhantomData;
 use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 

@@ -1,3 +1,5 @@
+//! The place all the entities, resources, and components live, at the heart of your project.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use crossbeam::channel;

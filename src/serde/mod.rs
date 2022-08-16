@@ -17,9 +17,12 @@ In pseudo-Ron, a serialized world will look something like this:
 
 ```text
 SerDeWorld(
-    // The allocator (generational_arena) serializes itself; this is what it happens to look like on the inside.
-    // Frankly I'm not really sure what it's doing; the internals of that crate are really smart (it uses a skip list)
-    // to compactly store where the free entity slots are, didja know?!)
+    // The allocator (generational_arena) serializes itself;
+    // this is what it happens to look like on the inside.
+    // Frankly I'm not really sure what it's doing; the internals of that crate are
+    // really smart.
+    // (It uses a skip list to compactly store where the free entity slots are,
+    // didja know?!)
     allocator: [
         Some(0, ()),
         Some(1, ()),

@@ -1,3 +1,5 @@
+//! Lightweight handles to lists of resources.
+
 use std::{collections::hash_map, iter, sync::RwLock};
 
 use ahash::AHashMap;

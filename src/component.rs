@@ -1,3 +1,5 @@
+//! Data attachable to [entities](crate::entities::Entity) that control its behavior by listening to [messages](crate::messages::Message).
+
 use std::any;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
@@ -96,7 +98,7 @@ impl<C: Component> HandlerBuilder<C> {
 
     /// Register a callback function to be called when an entity with components of the given type is inserted into the world.
     ///
-    /// These are called immediately after spawning an entity with a world, and during [`World::finalize`],
+    /// These are called immediately after spawning an entity with a world, and during [`World::finalize`][crate::world::World::finalize],
     /// for each new instance of that component type.
     ///
     /// Panics if another insert callback has already been registered to this component type or if the component
@@ -122,7 +124,7 @@ impl<C: Component> HandlerBuilder<C> {
     /// Register a callback function to be called when an entity with components of the given type
     /// is removed from the world.
     ///
-    /// These are called immediately after deleting an entity from a world, and during [`World::finalize`],
+    /// These are called immediately after deleting an entity from a world, and during [`World::finalize`][crate::world::World::finalize],
     /// for each new instance of that component type.
     ///
     /// Panics if another removal callback has already been registered to this component type or if the component

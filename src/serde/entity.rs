@@ -74,7 +74,7 @@ pub struct EntitySerContext<'a, 'w, Id: SerKey, S: Serializer> {
     pub entity: Entity,
     /// Reference to the world, for fetching components.
     pub world: &'w World,
-    /// Ids that have already been used. This is used by [`ComponentSerContext::try_serialize`] to check your work
+    /// Ids that have already been used. This is used by [`EntitySerContext::try_serialize`] to check your work
     /// and make sure you don't accidentally use the same key twice.
     extant_ids: AHashMap<Id, TypeIdWrapper>,
 }
@@ -166,6 +166,7 @@ impl<'w, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>> 
 // There's a lot of layers here: we have a wrapper around a HashMap<Entity, EntityBuilderComponentTracker>
 // (EntitiesDeWrapper), which forwards to a wrapper that reads the EntityBuilderComponentTrackers (EntityDeWrapper)
 
+/// Helper struct for deserializing entities.
 pub struct EntityDeContext<'a, 'de, M: MapAccess<'de>, Id: SerKey> {
     map: M,
     tracker: &'a mut EntityBuilderComponentTracker,
