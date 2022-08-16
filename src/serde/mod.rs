@@ -59,40 +59,41 @@ create a cache, like for (say) entity positions, then you shouldn't serialize wh
 
 ---
 
-Note that the serialization requires the ability to have keys that aren't strings. So, if you want
-to use a human-readable format, json won't work. But [Ron](https://crates.io/crates/ron) works great.
+Note that the serialization requires the ability to have keys that aren't strings. So, if you want to use a human-readable format,
+json won't work. But [Ron](https://crates.io/crates/ron) works great.
+
+For something compact, remember that a lot of binary formats aren't amazingly compatible when the schema changes.
+I personally haven't looked into this, but it might be worth using something like [MessagePack](https://github.com/3Hren/msgpack-rust)
+which serializes struct field names so you can change component definitions without breaking things.
+
+But, you can freely add *new* component types as you develop a game, and old saves should be compatible.
+
 */
 
 mod entity;
 mod resource;
+mod wrapper;
 pub use entity::{EntityDeContext, EntitySerContext};
 pub use resource::{ResourceDeContext, ResourceSerContext};
 
 use ahash::AHashMap;
-use generational_arena::Arena;
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    hash::Hash,
-    marker::PhantomData,
-};
+use std::hash::Hash;
 
 use serde::{
-    de::{self, DeserializeOwned, DeserializeSeed, MapAccess, Visitor},
-    Deserialize, Deserializer, Serialize, Serializer,
+    de::{DeserializeOwned, DeserializeSeed, MapAccess},
+    Deserializer, Serialize, Serializer,
 };
 
 use crate::{
-    builder::EntityBuilderComponentTracker,
     entities::{EntityAssoc, EntityStorage},
     prelude::{AccessEntityStats, Entity, World},
-    resource::Resource,
-    TypeIdWrapper,
 };
 
 use self::{
-    entity::{EntitiesDeWrapper, EntitySerWrapper},
-    resource::{ResourcesDeWrapper, ResourcesSerWrapper},
+    entity::EntitySerWrapper,
+    resource::ResourcesSerWrapper,
+    wrapper::{DeWorldDeserializer, SerWorld},
 };
 
 impl World {
@@ -266,170 +267,4 @@ pub trait SerKey:
 impl<T: Clone + Hash + PartialEq + Eq + Serialize + DeserializeOwned + Send + Sync + 'static> SerKey
     for T
 {
-}
-
-/// Wrapper for serializing a world.
-///
-/// This is not actually the same struct as [`DeWorld`]
-/// but it has the same signature to serde, so it should Just Work (tm)
-#[derive(Serialize)]
-#[serde(rename = "SerDeWorld")] // this type does not actually exist, aha
-#[serde(bound(serialize = ""))]
-struct SerWorld<'a, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>> {
-    allocator: &'a Arena<()>,
-    // Maps (real) entities to (fake) instructions for serializing them
-    entity_wrappers: AHashMap<Entity, EntitySerWrapper<'a, ResId, CmpId, W>>,
-    // Fake resources
-    resource_wrappers: ResourcesSerWrapper<'a, ResId, CmpId, W>,
-}
-
-/// Wrapper for deserializing a world.
-///
-/// We can't auto-impl deserialize because we need seeds
-struct DeWorld<CmpId: SerKey> {
-    allocator: Arena<()>,
-    // Maps (real) entities to (fake) instructions for deserializing them
-    entity_wrappers: AHashMap<Entity, EntityBuilderComponentTracker>,
-    resource_wrappers: BTreeMap<TypeIdWrapper, Box<dyn Resource>>,
-
-    phantom: PhantomData<*const CmpId>,
-}
-
-#[derive(Deserialize)]
-#[serde(field_identifier, rename_all = "snake_case")]
-enum SerdeWorldField {
-    Allocator,
-    EntityWrappers,
-    ResourceWrappers,
-}
-
-struct DeWorldDeserializer<
-    'a,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-> {
-    instrs: &'a W,
-    known_component_types: &'a BTreeSet<TypeIdWrapper>,
-    phantom: PhantomData<*const (ResId, CmpId)>,
-}
-
-impl<'a, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>>
-    DeWorldDeserializer<'a, ResId, CmpId, W>
-{
-    fn new(instrs: &'a W, known_component_types: &'a BTreeSet<TypeIdWrapper>) -> Self {
-        Self {
-            instrs,
-            known_component_types,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'a, 'de, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>>
-    DeserializeSeed<'de> for DeWorldDeserializer<'a, ResId, CmpId, W>
-where
-    'de: 'a,
-{
-    type Value = DeWorld<CmpId>;
-
-    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_struct(
-            "SerDeWorld",
-            &["allocator", "entity_wrappers", "resource_wrappers"],
-            self,
-        )
-    }
-}
-
-impl<'a, 'de, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>> Visitor<'de>
-    for DeWorldDeserializer<'a, ResId, CmpId, W>
-where
-    'de: 'a,
-{
-    type Value = DeWorld<CmpId>;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        formatter.write_str("a serialized world (map or seq)")
-    }
-
-    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-    where
-        A: de::SeqAccess<'de>,
-    {
-        let allocator = seq
-            .next_element()?
-            .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-
-        let seed = EntitiesDeWrapper::new(self.instrs, self.known_component_types);
-        let entity_wrappers = seq
-            .next_element_seed(seed)?
-            .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-
-        let seed = ResourcesDeWrapper::new(self.instrs);
-        let resource_wrappers = seq
-            .next_element_seed(seed)?
-            .ok_or_else(|| de::Error::invalid_length(2, &self))?;
-
-        Ok(DeWorld {
-            allocator,
-            entity_wrappers,
-            resource_wrappers,
-
-            phantom: PhantomData,
-        })
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: MapAccess<'de>,
-    {
-        let mut allocator = None;
-        let mut entity_wrappers = None;
-        let mut resource_wrappers = None;
-        while let Some(key) = map.next_key()? {
-            match key {
-                SerdeWorldField::Allocator => {
-                    if allocator.is_some() {
-                        return Err(de::Error::duplicate_field("allocator"));
-                    }
-                    allocator = Some(map.next_value()?);
-                }
-                SerdeWorldField::EntityWrappers => {
-                    if entity_wrappers.is_some() {
-                        return Err(de::Error::duplicate_field("entity_wrappers"));
-                    }
-
-                    let seed = EntitiesDeWrapper::new(self.instrs, self.known_component_types);
-                    let wrapper = map.next_value_seed(seed)?;
-                    entity_wrappers = Some(wrapper)
-                }
-                SerdeWorldField::ResourceWrappers => {
-                    if resource_wrappers.is_some() {
-                        return Err(de::Error::duplicate_field("resource_wrappers"));
-                    }
-
-                    let seed = ResourcesDeWrapper::new(self.instrs);
-                    let wrapper = map.next_value_seed(seed)?;
-                    resource_wrappers = Some(wrapper)
-                }
-            }
-        }
-
-        let allocator = allocator.ok_or_else(|| de::Error::missing_field("allocator"))?;
-        let entity_wrappers =
-            entity_wrappers.ok_or_else(|| de::Error::missing_field("entity_wrappers"))?;
-        let resource_wrappers =
-            resource_wrappers.ok_or_else(|| de::Error::missing_field("resource_wrappers"))?;
-        Ok(DeWorld {
-            allocator,
-            entity_wrappers,
-            resource_wrappers,
-
-            phantom: PhantomData,
-        })
-    }
 }

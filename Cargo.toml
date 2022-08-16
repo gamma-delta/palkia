@@ -28,4 +28,5 @@ fastrand = "1.7.0"
 
 [features]
 default = ["serde"]
+
 serde = ["dep:serde", "ahash/serde", "generational-arena/serde"]

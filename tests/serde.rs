@@ -185,6 +185,37 @@ fn roundtrip_all() {
     assert_eq!(dc1, dc2);
 }
 
+#[test]
+fn callbacks() {
+    let mut world1 = World::new();
+    world1.register_component::<Duplicator>();
+    world1.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
+
+    world1.spawn().with(Duplicator).build();
+
+    for _ in 0..10 {
+        world1.dispatch_to_all(MsgTick);
+        world1.finalize();
+    }
+
+    let bin = ser_world(&mut world1);
+
+    let mut world2 = World::new();
+    world2.register_component::<Duplicator>();
+    world2.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
+
+    de_world(&mut world2, &bin);
+
+    let rtianwadic1 = world1
+        .get_resource::<ResThatIncrementsANumberWhenADuplicatorIsCreated>()
+        .unwrap();
+    let rtianwadic2 = world2
+        .get_resource::<ResThatIncrementsANumberWhenADuplicatorIsCreated>()
+        .unwrap();
+    // note that we don't actually de/serialize that resource
+    assert_eq!(rtianwadic1.count, rtianwadic2.count);
+}
+
 // Serde helpers
 
 fn ser_world(world: &mut World) -> Vec<u8> {
@@ -305,15 +336,23 @@ impl Component for Duplicator {
     where
         Self: Sized,
     {
-        builder.handle_read(|_, msg: MsgTick, _, access| {
-            access.lazy_spawn().with(Duplicator).build();
+        builder
+            .handle_read(|_, msg: MsgTick, _, access| {
+                access.lazy_spawn().with(Duplicator).build();
 
-            if let Ok(mut duplicounter) = access.write_resource::<DupliCounter>() {
-                duplicounter.count += 1;
-            }
+                if let Ok(mut duplicounter) = access.write_resource::<DupliCounter>() {
+                    duplicounter.count += 1;
+                }
 
-            msg
-        })
+                msg
+            })
+            .register_remove_callback(|_, _, access| {
+                if let Ok(mut rtianwadic) =
+                    access.write_resource::<ResThatIncrementsANumberWhenADuplicatorIsCreated>()
+                {
+                    rtianwadic.count += 1;
+                }
+            })
     }
 }
 
@@ -343,6 +382,14 @@ impl Resource for DupliCounter {}
 
 struct ResNotSerialized;
 impl Resource for ResNotSerialized {}
+
+/// Basically the same as DupliCounter but it does it with a callback
+/// and isn't serialized
+#[derive(Default)]
+struct ResThatIncrementsANumberWhenADuplicatorIsCreated {
+    count: u64,
+}
+impl Resource for ResThatIncrementsANumberWhenADuplicatorIsCreated {}
 
 #[derive(Clone)]
 struct MsgTick;
