@@ -11,6 +11,7 @@ pub mod resource;
 pub mod world;
 
 #[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;
 
 use std::any::{self, TypeId};

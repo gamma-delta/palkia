@@ -1,6 +1,6 @@
 [package]
 name = "palkia"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -30,3 +30,8 @@ fastrand = "1.7.0"
 # default = ["serde"]
 
 serde = ["dep:serde", "ahash/serde", "generational-arena/serde"]
+
+# https://github.com/rust-random/rand/issues/986
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
