@@ -25,9 +25,11 @@ use prelude::Entity;
 #[derive(Clone, Copy)]
 /// Wrapper for a [`TypeId`] that also stores the name of the type, to aid in debugging
 /// and for nicer error messages.
-struct TypeIdWrapper {
-    tid: TypeId,
-    type_name: &'static str,
+///
+/// You should probably not be using this...
+pub struct TypeIdWrapper {
+    pub tid: TypeId,
+    pub type_name: &'static str,
 }
 
 impl std::ops::Deref for TypeIdWrapper {

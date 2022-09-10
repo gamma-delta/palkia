@@ -7,21 +7,35 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::entities::EntityAssoc;
 use crate::prelude::{Component, Entity, ListenerWorldAccess, World};
 use crate::world::LazyUpdate;
 use crate::TypeIdWrapper;
+use crate::{entities::EntityAssoc, ToTypeIdWrapper};
 
 /// Unified interface for [`ImmediateEntityBuilder`] and [`LazyEntityBuilder`], for ease of generic code.
 ///
 /// When sending a message to an entity, components will recieve the message in the order that things were
 /// added to the builder.
-pub trait EntityBuilder: Sized {
-    /// Insert the given component into the entity. If there was a component with that type already on
-    /// the entity, replaces and returns the old component.
-    fn insert<C: Component>(&mut self, component: C) -> Option<C>;
+pub unsafe trait EntityBuilder: Sized {
+    /// Insert the given type-erased component into the entity.
+    /// If there was a component with that type already on the entity, replaces and returns the old component.
+    ///
+    /// You should probably not be calling this; try [`insert`][EntityBuilder::insert].
+    ///
+    /// SAFETY: This must *only ever* return the *same* type of component as passed in if it returns anything.
+    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>;
 
-    /// Insert the given component into the entity. Like [`Self::insert`], but returns `self`
+    /// Insert the given component into the tentative entity. If there was a component with that type already on
+    /// the entity, replaces and returns the old component.
+    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+        let erased = Box::new(component);
+        self.insert_raw(erased).map(|cmp| {
+            // SAFETY: the unsafe impl of `insert_erased` must be implemented correctly to not return a bad type
+            unsafe { *cmp.downcast().unwrap_unchecked() }
+        })
+    }
+
+    /// Insert the given component into the entity. Like [`insert`][`EntityBuilder::insert`], but returns `self`
     /// for chaining.
     fn with<C: Component>(mut self, component: C) -> Self {
         self.insert(component);
@@ -54,21 +68,31 @@ impl EntityBuilderComponentTracker {
         component: C,
         comp_types: &BTreeSet<TypeIdWrapper>,
     ) -> Option<C> {
-        let tid = TypeIdWrapper::of::<C>();
+        self.insert_raw(Box::new(component), comp_types)
+            .map(|comp| {
+                // SAFETY: type guards
+                unsafe { *comp.downcast().unwrap_unchecked() }
+            })
+    }
+
+    pub(crate) fn insert_raw(
+        &mut self,
+        component: Box<dyn Component>,
+        comp_types: &BTreeSet<TypeIdWrapper>,
+    ) -> Option<Box<dyn Component>> {
+        let tid = (*component).type_id_wrapper();
         if !comp_types.contains(&tid) {
             // Technically, no UB or anything happens if this doesn't panic, but it *is* an easy mistake to make
             // and your events won't fire.
             panic!("tried to add a component of type {} to an entity, but that type was not registered", tid.type_name);
         }
 
-        let boxc = Box::new(component) as _;
         if let Some(clobberee) = self.component_ids.get(&tid) {
-            let old = std::mem::replace(&mut self.components[*clobberee], boxc);
-            // SAFETY: type guards prevent this from being of the wrong type
-            Some(unsafe { *old.downcast().unwrap_unchecked() })
+            let old = std::mem::replace(&mut self.components[*clobberee], component);
+            Some(old)
         } else {
             let idx = self.components.len();
-            self.components.push(boxc);
+            self.components.push(component);
             self.component_ids.insert(tid, idx);
             None
         }
@@ -95,10 +119,10 @@ impl<'w> ImmediateEntityBuilder<'w> {
     }
 }
 
-impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
-    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+unsafe impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
+    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>> {
         self.tracker
-            .insert(component, &self.world.known_component_types)
+            .insert_raw(component, &self.world.known_component_types)
     }
 
     fn len(&self) -> usize {
@@ -135,10 +159,10 @@ impl<'a, 'w> LazyEntityBuilder<'a, 'w> {
     }
 }
 
-impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
-    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+unsafe impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
+    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>> {
         self.tracker
-            .insert(component, &self.accessor.world.known_component_types)
+            .insert_raw(component, &self.accessor.world.known_component_types)
     }
 
     fn len(&self) -> usize {
