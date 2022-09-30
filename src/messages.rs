@@ -1,5 +1,7 @@
 //! Data sent to an entity and forwarded to each of its components, mutated along the way.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use crossbeam::channel;
 use downcast::{downcast, Any};
 
@@ -61,6 +63,7 @@ pub struct ListenerWorldAccess<'w> {
     lazy_updates: channel::Sender<LazyUpdate>,
     queued_message_tx: channel::Sender<(Box<dyn Message>, Entity)>,
     queued_message_rx: channel::Receiver<(Box<dyn Message>, Entity)>,
+    cancelled: AtomicBool,
 
     pub(crate) world: &'w World,
 }
@@ -72,6 +75,7 @@ impl<'w> ListenerWorldAccess<'w> {
             lazy_updates: world.lazy_sender.clone(),
             queued_message_tx: tx,
             queued_message_rx: rx,
+            cancelled: AtomicBool::new(false),
             world,
         }
     }
@@ -97,6 +101,27 @@ impl<'w> ListenerWorldAccess<'w> {
     /// Queue an entity to be despawned when [`World::finalize`] is called.
     pub fn lazy_despawn(&self, entity: Entity) {
         self.queue_update(LazyUpdate::DespawnEntity(entity));
+    }
+
+    /// Cancel the message, preventing it from being passed to further components on the entity.
+    ///
+    /// This can be used for control flow, but it's most useful for efficiency if you know no further processing will happen,
+    /// so the world doesn't need to iterate over the remaining components.
+    pub fn cancel(&self) {
+        self.set_cancellation(true)
+    }
+
+    /// Set the cancellation state of the message. See [`ListenerWorldAccess::cancel`].
+    pub fn set_cancellation(&self, cancelled: bool) {
+        self.cancelled.store(cancelled, Ordering::Relaxed);
+    }
+
+    /// Get whether the message is cancelled or not. See [`ListenerWorldAccess::cancel`].
+    ///
+    /// I'm not sure why you would want to call this and it's probably bad code smell if you do,
+    /// but it felt incomplete to not impl it.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
     }
 
     pub(crate) fn queue_update(&self, update: LazyUpdate) {

@@ -1,6 +1,6 @@
 [package]
 name = "palkia"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -27,7 +27,7 @@ crossterm = "0.24.0"
 fastrand = "1.7.0"
 
 [features]
-# default = ["serde"]
+default = ["serde"]
 
 serde = ["dep:serde", "ahash/serde", "generational-arena/serde"]
 

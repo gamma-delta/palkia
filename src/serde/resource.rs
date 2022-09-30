@@ -104,8 +104,6 @@ impl<'w, ResId: SerKey, CmpId: SerKey, W: WorldSerdeInstructions<ResId, CmpId>> 
             let lock = res.try_read().unwrap();
             let ctx = ResourceSerContext::<'_, '_, ResId, S>::new(&mut map, &**lock);
             self.instrs.serialize_resource(ctx)?;
-
-            let _ = lock;
         }
         map.end()
     }

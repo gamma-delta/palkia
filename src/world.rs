@@ -4,11 +4,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crossbeam::channel;
 
-use crate::access::{AccessDispatcher, AccessEntityStats};
 use crate::entities::Entity;
 use crate::messages::{ListenerWorldAccess, Message, MsgHandlerInner};
 use crate::prelude::Query;
 use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
+use crate::{
+    access::{AccessDispatcher, AccessEntityStats},
+    callback::{OnCreateCallback, OnRemoveCallback},
+};
 use crate::{
     access::{AccessQuery, AccessResources},
     builder::ImmediateEntityBuilder,
@@ -74,14 +77,47 @@ impl World {
                 .insert(TypeIdWrapper::of::<C>(), handler);
         }
 
-        let cbs = match (builder.create_cb, builder.remove_cb) {
-            (None, None) => None,
-            (None, Some(remove)) => Some(Callbacks::Remove(remove)),
-            (Some(create), None) => Some(Callbacks::Create(create)),
-            (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
-        };
+        let cbs = mux_callbacks(builder.create_cb, builder.remove_cb);
         if let Some(cbs) = cbs {
             self.callbacks.insert(TypeIdWrapper::of::<C>(), cbs);
+        }
+    }
+
+    /// Extend a component type by adding more message handlers to it. (Perhaps the component was defined in
+    /// another crate.)
+    ///
+    /// The closure will receive a [`HandlerBuilder`]; use it as you might in the original closure implementation.
+    /// If the component previously defined a handler for a message, the one added here will clobber the old one.
+    /// Duplicate callbacks are currently not implemented and will panic.
+    ///
+    /// Panics if that component type has not been registered yet.
+    pub fn extend_component<C: Component>(
+        &mut self,
+        extension: impl FnOnce(HandlerBuilder<C>) -> HandlerBuilder<C>,
+    ) {
+        let tid = TypeIdWrapper::of::<C>();
+        if !self.known_component_types.contains(&tid) {
+            panic!(
+                "tried to extend unregistered component type {:?}",
+                tid.type_name
+            );
+        }
+
+        let builder = HandlerBuilder::<C>::new();
+        let builder = extension(builder);
+
+        if builder.create_cb.is_some() || builder.remove_cb.is_some() {
+            panic!(
+                "tried to extend component type {:?} by adding create/remove callbacks",
+                tid.type_name
+            );
+        }
+
+        for (ev_type, handler) in builder.handlers {
+            self.msg_table
+                .entry(ev_type)
+                .or_default()
+                .insert(TypeIdWrapper::of::<C>(), handler);
         }
     }
 
@@ -283,7 +319,10 @@ pub(crate) fn dispatch_even_innerer(
                     handler(&mut **lock, msg, target, access)
                 }
             };
-            msg = msg2
+            msg = msg2;
+            if access.is_cancelled() {
+                break;
+            }
         }
     }
 
@@ -292,4 +331,16 @@ pub(crate) fn dispatch_even_innerer(
     }
 
     msg
+}
+
+fn mux_callbacks(
+    create: Option<OnCreateCallback>,
+    remove: Option<OnRemoveCallback>,
+) -> Option<Callbacks> {
+    match (create, remove) {
+        (None, None) => None,
+        (None, Some(remove)) => Some(Callbacks::Remove(remove)),
+        (Some(create), None) => Some(Callbacks::Create(create)),
+        (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
+    }
 }
