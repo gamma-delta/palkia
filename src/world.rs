@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crossbeam::channel;
 
-use crate::entities::Entity;
+use crate::entities::{Entity, EntityIter};
 use crate::messages::{ListenerWorldAccess, Message, MsgHandlerInner};
 use crate::prelude::Query;
 use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
@@ -180,6 +180,13 @@ impl World {
         for lazy in updates {
             lazy.apply(self);
         }
+    }
+
+    /// Get an iterator over all the entities in the world.
+    ///
+    /// You *probably* don't want to use this; try [`World::dispatch_to_all`] instead.
+    pub fn entities(&self) -> EntityIter<'_> {
+        self.entities.iter()
     }
 
     pub(crate) fn run_creation_callbacks(&self, e: Entity) {
