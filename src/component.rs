@@ -4,7 +4,7 @@ use std::any;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 
-use downcast::{downcast_sync, AnySync};
+use downcast::{downcast, Any};
 
 use crate::callback::{CallbackWorldAccess, OnCreateCallback, OnRemoveCallback};
 use crate::messages::{Message, MsgHandlerInner, MsgHandlerRead, MsgHandlerWrite};
@@ -12,7 +12,7 @@ use crate::prelude::{Entity, ListenerWorldAccess};
 use crate::TypeIdWrapper;
 
 /// Something attached to an [`Entity`] that gives it its behavior.
-pub trait Component: AnySync {
+pub trait Component: Any {
     /// Register what message types this listens to and what it does with them.
     ///
     /// See [`HandlerBuilder`] for more information.
@@ -20,7 +20,7 @@ pub trait Component: AnySync {
     where
         Self: Sized;
 }
-downcast_sync!(dyn Component);
+downcast!(dyn Component);
 
 /// Builder that registers listeners and callbacks to components.
 #[must_use = "does nothing until .build() is called"]

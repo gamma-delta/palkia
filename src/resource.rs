@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError};
 
-use downcast::{downcast, AnySync};
+use downcast::{downcast, Any};
 
 use crate::{ToTypeIdWrapper, TypeIdWrapper};
 
@@ -17,7 +17,7 @@ use crate::{ToTypeIdWrapper, TypeIdWrapper};
 /// anything that wouldn't make sense to have more than one of.
 ///
 /// The trait is more or less a marker trait, so you don't accidentally put the wrong thing in worlds.
-pub trait Resource: AnySync {}
+pub trait Resource: Any {}
 downcast!(dyn Resource);
 
 pub(crate) struct ResourceMap {
