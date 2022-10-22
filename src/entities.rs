@@ -11,10 +11,30 @@ use generational_arena::Index;
 use crate::{prelude::Component, ToTypeIdWrapper, TypeIdWrapper};
 
 /// A handle to a list of [`Component`]s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 pub struct Entity(pub(crate) Index);
+
+impl Entity {
+    /// Decompose an [`Entity`] into its raw parts: `(index, generation)`.
+    ///
+    /// You almost certainly do NOT want to call this...
+    ///
+    /// See the [`generational-arena` docs](https://docs.rs/generational-arena/0.2.8/generational_arena/struct.Index.html#implementations)
+    /// (which this crate uses internally) for more.
+    pub fn decompose(self) -> (usize, u64) {
+        self.0.into_raw_parts()
+    }
+
+    /// Recompose an [`Entity`] from values you got from [`decompose`](Entity::decompose).
+    ///
+    /// Please don't call this from values you didn't get from `decompose`; it will lead to errors and probably panics,
+    /// and possibly UB.
+    pub fn recompose(index: usize, generation: u64) -> Self {
+        Self(Index::from_raw_parts(index, generation))
+    }
+}
 
 /// Allocator and storage for entities.
 ///
