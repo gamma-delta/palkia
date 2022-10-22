@@ -284,8 +284,11 @@ impl LazyUpdate {
                 world.run_creation_callbacks(entity);
             }
             LazyUpdate::DespawnEntity(entity) => {
-                let prev = world.entities.despawn(entity);
-                world.run_removal_callback(entity, prev);
+                if world.entities.is_alive(entity) {
+                    let prev = world.entities.despawn(entity);
+                    world.run_removal_callback(entity, prev);
+                }
+                // Otherwise, it was double-killed, we hope
             }
         }
     }

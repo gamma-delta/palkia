@@ -36,6 +36,22 @@ fn spawn_despawn() {
     assert_eq!(world.len(), 2usize.pow(16))
 }
 
+#[test]
+fn spawn_dedespawn() {
+    let mut world = World::new();
+
+    world.register_component::<Rabbit>();
+
+    world.spawn().with(Rabbit).build();
+
+    for _ in 0..100 {
+        world.dispatch_to_all(MsgReproduceAndDieAndDie);
+        world.finalize();
+    }
+
+    assert_eq!(world.len(), 1)
+}
+
 struct Rabbit;
 
 impl Rabbit {
@@ -64,6 +80,20 @@ impl Rabbit {
 
         event
     }
+
+    fn reproduce_and_die_and_die(
+        &self,
+        event: MsgReproduceAndDieAndDie,
+        this: Entity,
+        access: &ListenerWorldAccess,
+    ) -> MsgReproduceAndDieAndDie {
+        // Make sure killing twice isn't a problem
+        access.lazy_spawn().with(Rabbit).build();
+        access.lazy_despawn(this);
+        access.lazy_despawn(this);
+
+        event
+    }
 }
 
 impl Component for Rabbit {
@@ -74,6 +104,7 @@ impl Component for Rabbit {
         builder
             .handle_read(Rabbit::mitosis)
             .handle_read(Rabbit::reproduce_and_die)
+            .handle_read(Rabbit::reproduce_and_die_and_die)
     }
 }
 
@@ -86,3 +117,8 @@ impl Message for MsgReproduceMitosis {}
 struct MsgReproduceAndDie;
 
 impl Message for MsgReproduceAndDie {}
+
+#[derive(Debug, Clone, Copy)]
+struct MsgReproduceAndDieAndDie;
+
+impl Message for MsgReproduceAndDieAndDie {}
