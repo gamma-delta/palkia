@@ -25,16 +25,11 @@ pub unsafe trait EntityBuilder {
     /// You should probably not be calling this; try [`insert`][EntityBuilder::insert].
     ///
     /// SAFETY: This must *only ever* return the *same* type of component as passed in if it returns anything.
-    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>
-    where
-        Self: Sized;
+    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>;
 
     /// Insert the given component into the tentative entity. If there was a component with that type already on
     /// the entity, replaces and returns the old component.
-    fn insert<C: Component>(&mut self, component: C) -> Option<C>
-    where
-        Self: Sized,
-    {
+    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
         let erased = Box::new(component);
         self.insert_raw(erased).map(|cmp| {
             // SAFETY: the unsafe impl of `insert_erased` must be implemented correctly to not return a bad type
