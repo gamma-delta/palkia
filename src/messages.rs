@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crossbeam::channel;
 use downcast::{downcast, Any};
 
-use crate::prelude::AccessResources;
-use crate::prelude::{Component, Entity, Query, World};
-use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
-use crate::world::{dispatch_inner, LazyUpdate};
 use crate::{
-    builder::LazyEntityBuilder,
-    prelude::{AccessDispatcher, AccessEntityStats, AccessQuery},
+    prelude::{
+        AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
+        Component, Entity, EntityBuilder, Query, World,
+    },
+    resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
+    world::{dispatch_inner, LazyUpdate},
 };
 
 /// Data that is threaded through components.
@@ -26,8 +26,12 @@ downcast!(dyn Message);
 pub type MsgHandlerRead<C, E> =
     fn(this: &C, event: E, owner: Entity, access: &ListenerWorldAccess) -> E;
 /// A message handler that needs mutable access to the component.
-pub type MsgHandlerWrite<C, E> =
-    fn(this: &mut C, event: E, owner: Entity, access: &ListenerWorldAccess) -> E;
+pub type MsgHandlerWrite<C, E> = fn(
+    this: &mut C,
+    event: E,
+    owner: Entity,
+    access: &ListenerWorldAccess,
+) -> E;
 
 pub(crate) enum MsgHandlerInner {
     Read(
@@ -93,9 +97,9 @@ impl<'w> ListenerWorldAccess<'w> {
     }
 
     /// Set up an entity to be spawned once [`World::finalize`] is called.
-    pub fn lazy_spawn<'a>(&'a self) -> LazyEntityBuilder<'a, 'w> {
+    pub fn lazy_spawn<'a>(&'a self) -> EntityBuilder<'a, 'w> {
         let entity = self.world.entities.spawn_unfinished();
-        LazyEntityBuilder::new(self, entity)
+        EntityBuilder::new_lazy(self, entity)
     }
 
     /// Queue an entity to be despawned when [`World::finalize`] is called.
@@ -128,7 +132,9 @@ impl<'w> ListenerWorldAccess<'w> {
         self.lazy_updates.send(update).unwrap();
     }
 
-    pub(crate) fn queued_message_rx(&self) -> &channel::Receiver<(Box<dyn Message>, Entity)> {
+    pub(crate) fn queued_message_rx(
+        &self,
+    ) -> &channel::Receiver<(Box<dyn Message>, Entity)> {
         &self.queued_message_rx
     }
 }
@@ -158,17 +164,24 @@ impl<'w> AccessEntityStats for ListenerWorldAccess<'w> {
 }
 
 impl<'w> AccessQuery for ListenerWorldAccess<'w> {
-    fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
+    fn query<'c, Q: Query<'c>>(
+        &'c self,
+        interrogatee: Entity,
+    ) -> Option<Q::Response> {
         self.world.query::<Q>(interrogatee)
     }
 }
 
 impl<'w> AccessResources for ListenerWorldAccess<'w> {
-    fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
+    fn read_resource<R: Resource>(
+        &self,
+    ) -> Result<ReadResource<'_, R>, ResourceLookupError> {
         self.world.read_resource()
     }
 
-    fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
+    fn write_resource<R: Resource>(
+        &self,
+    ) -> Result<WriteResource<'_, R>, ResourceLookupError> {
         self.world.write_resource()
     }
 

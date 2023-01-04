@@ -15,9 +15,11 @@ pub mod world;
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;
 
-use std::any::{self, TypeId};
-use std::fmt::Debug;
-use std::hash::{Hash, Hasher};
+use std::{
+    any::{self, TypeId},
+    fmt::Debug,
+    hash::{Hash, Hasher},
+};
 
 use downcast::Any;
 use prelude::Entity;
@@ -108,18 +110,26 @@ fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
 
 pub mod prelude {
     //! Handy module to glob-import and get everything in the crate.
-    pub use crate::access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources};
-    pub use crate::builder::{EntityBuilder, ImmediateEntityBuilder, LazyEntityBuilder};
-    pub use crate::callback::CallbackWorldAccess;
-    pub use crate::component::{Component, HandlerBuilder};
-    pub use crate::entities::Entity;
-    pub use crate::messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite};
-    pub use crate::query::Query;
-    pub use crate::resource::{ReadResource, Resource, ResourceLookupError, WriteResource};
     #[cfg(feature = "serde")]
     pub use crate::serde::{
-        EntityDeContext, EntitySerContext, ResourceDeContext, ResourceSerContext, SerKey,
-        WorldSerdeInstructions,
+        EntityDeContext, EntitySerContext, ResourceDeContext,
+        ResourceSerContext, SerKey, WorldSerdeInstructions,
     };
-    pub use crate::world::World;
+    pub use crate::{
+        access::{
+            AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
+        },
+        builder::EntityBuilder,
+        callback::CallbackWorldAccess,
+        component::{Component, HandlerBuilder},
+        entities::Entity,
+        messages::{
+            ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite,
+        },
+        query::Query,
+        resource::{
+            ReadResource, Resource, ResourceLookupError, WriteResource,
+        },
+        world::World,
+    };
 }

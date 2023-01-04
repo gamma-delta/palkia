@@ -7,39 +7,79 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::prelude::{Component, Entity, ListenerWorldAccess, World};
-use crate::world::LazyUpdate;
-use crate::TypeIdWrapper;
-use crate::{entities::EntityAssoc, ToTypeIdWrapper};
+use crate::{
+    entities::EntityAssoc,
+    prelude::{Component, Entity, ListenerWorldAccess, World},
+    world::LazyUpdate,
+    ToTypeIdWrapper, TypeIdWrapper,
+};
 
-/// Unified interface for [`ImmediateEntityBuilder`] and [`LazyEntityBuilder`], for ease of generic code.
+/// When sending a message to an entity, components will recieve the message in
+/// the order that things were added to the builder.
 ///
-/// When sending a message to an entity, components will recieve the message in the order that things were
-/// added to the builder.
-///
-/// The `Sized` bound isn't on the builder itself, so it can be type-erased for the benefit of Dialga.
-pub unsafe trait EntityBuilder {
+/// This struct has two variants internally;
+/// an immediate mode for when you have mutable access to the builder
+/// and a lazy mode that adds the entity only once [`World::finalize`] is
+/// called.
+#[must_use = "Does nothing until `.build()` is called."]
+pub struct EntityBuilder<'a, 'w> {
+    pub entity: Entity,
+    tracker: EntityBuilderComponentTracker,
+    access: EntityBuilderAccess<'a, 'w>,
+}
+
+impl<'a, 'w> EntityBuilder<'a, 'w> {
+    pub(crate) fn new_lazy(
+        lazy: &'a ListenerWorldAccess<'w>,
+        entity: Entity,
+    ) -> Self {
+        Self {
+            entity,
+            tracker: EntityBuilderComponentTracker::new(),
+            access: EntityBuilderAccess::Lazy(lazy),
+        }
+    }
+
+    pub(crate) fn new_immediate(world: &'w mut World, entity: Entity) -> Self {
+        Self {
+            entity,
+            tracker: EntityBuilderComponentTracker::new(),
+            access: EntityBuilderAccess::Immediate(world),
+        }
+    }
+
     /// Insert the given type-erased component into the entity.
-    /// If there was a component with that type already on the entity, replaces and returns the old component.
+    /// If there was a component with that type already on the entity,
+    /// replaces and returns the old component.
     ///
     /// You should probably not be calling this; try [`insert`][EntityBuilder::insert].
-    ///
-    /// SAFETY: This must *only ever* return the *same* type of component as passed in if it returns anything.
-    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>;
+    pub fn insert_raw(
+        &mut self,
+        component: Box<dyn Component>,
+    ) -> Option<Box<dyn Component>> {
+        let world = match self.access {
+            EntityBuilderAccess::Immediate(ref world) => world,
+            EntityBuilderAccess::Lazy(lazy) => lazy.world,
+        };
+        self.tracker
+            .insert_raw(component, &world.known_component_types)
+    }
 
-    /// Insert the given component into the tentative entity. If there was a component with that type already on
-    /// the entity, replaces and returns the old component.
-    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+    /// Insert the given component into the tentative entity.
+    /// If there was a component with that type already on the entity,
+    /// replaces and returns the old component.
+    pub fn insert<C: Component>(&mut self, component: C) -> Option<C> {
         let erased = Box::new(component);
         self.insert_raw(erased).map(|cmp| {
-            // SAFETY: the unsafe impl of `insert_erased` must be implemented correctly to not return a bad type
+            // SAFETY: type id guard
             unsafe { *cmp.downcast().unwrap_unchecked() }
         })
     }
 
-    /// Insert the given component into the entity. Like [`insert`][`EntityBuilder::insert`], but returns `self`
+    /// Insert the given component into the entity.
+    /// Like [`insert`][`EntityBuilder::insert`], but returns `self`
     /// for chaining.
-    fn with<C: Component>(mut self, component: C) -> Self
+    pub fn with<C: Component>(mut self, component: C) -> Self
     where
         Self: Sized,
     {
@@ -48,19 +88,49 @@ pub unsafe trait EntityBuilder {
     }
 
     /// Get the number of components that will be attached to the given entity.
-    fn len(&self) -> usize;
+    pub fn len(&self) -> usize {
+        self.tracker.components.len()
+    }
 
     /// Return true if no components will be attached to this entity.
-    fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     /// Consume this and insert the entity into the world, returning it to the caller.
     ///
     /// Note that if you *don't* call this, there will be panics.
-    fn build(self) -> Entity
-    where
-        Self: Sized;
+    pub fn build(mut self) -> Entity {
+        match self.access {
+            EntityBuilderAccess::Immediate(ref mut world) => {
+                world.entities.finish_spawn(
+                    self.entity,
+                    EntityAssoc::new(self.tracker.components),
+                );
+                world.run_creation_callbacks(self.entity);
+            }
+            EntityBuilderAccess::Lazy(lazy) => {
+                lazy.queue_update(LazyUpdate::FinishEntity(
+                    self.tracker.components,
+                    self.entity,
+                ));
+            }
+        }
+        self.entity
+    }
+
+    /// Get whether this is immediate mode or not, if you care for some reason.
+    pub fn is_immediate(&self) -> bool {
+        match self.access {
+            EntityBuilderAccess::Immediate(_) => true,
+            EntityBuilderAccess::Lazy(_) => false,
+        }
+    }
+}
+
+pub(crate) enum EntityBuilderAccess<'a, 'w> {
+    Immediate(&'w mut World),
+    Lazy(&'a ListenerWorldAccess<'w>),
 }
 
 #[derive(Default)]
@@ -70,6 +140,10 @@ pub(crate) struct EntityBuilderComponentTracker {
 }
 
 impl EntityBuilderComponentTracker {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
     pub(crate) fn insert<C: Component>(
         &mut self,
         component: C,
@@ -95,7 +169,8 @@ impl EntityBuilderComponentTracker {
         }
 
         if let Some(clobberee) = self.component_ids.get(&tid) {
-            let old = std::mem::replace(&mut self.components[*clobberee], component);
+            let old =
+                std::mem::replace(&mut self.components[*clobberee], component);
             Some(old)
         } else {
             let idx = self.components.len();
@@ -103,84 +178,5 @@ impl EntityBuilderComponentTracker {
             self.component_ids.insert(tid, idx);
             None
         }
-    }
-}
-
-/// An [`EntityBuilder`] made with exclusive, mutable access to the world.
-///
-/// The entity is inserted as soon as `.build()` is called.
-#[must_use = "Does nothing until `.build()` is called."]
-pub struct ImmediateEntityBuilder<'w> {
-    world: &'w mut World,
-    pub entity: Entity,
-    tracker: EntityBuilderComponentTracker,
-}
-
-impl<'w> ImmediateEntityBuilder<'w> {
-    pub(crate) fn new(world: &'w mut World, entity: Entity) -> Self {
-        Self {
-            world,
-            entity,
-            tracker: EntityBuilderComponentTracker::default(),
-        }
-    }
-}
-
-unsafe impl<'w> EntityBuilder for ImmediateEntityBuilder<'w> {
-    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>> {
-        self.tracker
-            .insert_raw(component, &self.world.known_component_types)
-    }
-
-    fn len(&self) -> usize {
-        self.tracker.components.len()
-    }
-
-    fn build(self) -> Entity {
-        self.world
-            .entities
-            .finish_spawn(self.entity, EntityAssoc::new(self.tracker.components));
-        self.world.run_creation_callbacks(self.entity);
-        self.entity
-    }
-}
-
-/// An [`EntityBuilder`] that does not have a mutable reference to the world.
-///
-/// The entity will be *queued* to be inserted when `.build()` is called, but won't actually
-/// exist until whatever event handler it's being called from returns.
-#[must_use = "Does nothing until `.build()` is called."]
-pub struct LazyEntityBuilder<'a, 'w> {
-    accessor: &'a ListenerWorldAccess<'w>,
-    pub entity: Entity,
-    tracker: EntityBuilderComponentTracker,
-}
-
-impl<'a, 'w> LazyEntityBuilder<'a, 'w> {
-    pub(crate) fn new(accessor: &'a ListenerWorldAccess<'w>, entity: Entity) -> Self {
-        Self {
-            accessor,
-            entity,
-            tracker: EntityBuilderComponentTracker::default(),
-        }
-    }
-}
-
-unsafe impl<'a, 'w> EntityBuilder for LazyEntityBuilder<'a, 'w> {
-    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>> {
-        self.tracker
-            .insert_raw(component, &self.accessor.world.known_component_types)
-    }
-
-    fn len(&self) -> usize {
-        self.tracker.components.len()
-    }
-
-    fn build(self) -> Entity {
-        self.accessor.queue_update(LazyUpdate::FinishEntity(
-            self.tracker.components,
-            self.entity,
-        ));
-        self.entity
     }
 }

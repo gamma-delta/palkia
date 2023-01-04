@@ -4,33 +4,31 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crossbeam::channel;
 
-use crate::entities::{Entity, EntityIter};
-use crate::messages::{ListenerWorldAccess, Message, MsgHandlerInner};
-use crate::prelude::Query;
-use crate::resource::{ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource};
 use crate::{
-    access::{AccessDispatcher, AccessEntityStats},
-    callback::{OnCreateCallback, OnRemoveCallback},
-};
-use crate::{
-    access::{AccessQuery, AccessResources},
-    builder::ImmediateEntityBuilder,
-};
-use crate::{
-    callback::{CallbackWorldAccess, Callbacks},
-    entities::EntityStorage,
-};
-use crate::{
+    access::{
+        AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
+    },
+    builder::EntityBuilder,
+    callback::{
+        CallbackWorldAccess, Callbacks, OnCreateCallback, OnRemoveCallback,
+    },
     component::{Component, HandlerBuilder},
-    entities::EntityAssoc,
+    entities::{Entity, EntityAssoc, EntityIter, EntityStorage},
+    loop_panic,
+    messages::{ListenerWorldAccess, Message, MsgHandlerInner},
+    prelude::Query,
+    resource::{
+        ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource,
+    },
+    ToTypeIdWrapper, TypeIdWrapper,
 };
-use crate::{loop_panic, ToTypeIdWrapper, TypeIdWrapper};
 
 pub struct World {
     /// Each entity maps type IDs to their components
     pub(crate) entities: EntityStorage,
     /// Maps event types to, maps component types to the EventHandler.
-    msg_table: BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, MsgHandlerInner>>,
+    msg_table:
+        BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, MsgHandlerInner>>,
     pub(crate) known_component_types: BTreeSet<TypeIdWrapper>,
 
     pub(crate) resources: ResourceMap,
@@ -122,9 +120,9 @@ impl World {
     }
 
     /// Set up a builder to spawn an entity with a whole mess of components.
-    pub fn spawn(&mut self) -> ImmediateEntityBuilder<'_> {
+    pub fn spawn<'w>(&'w mut self) -> EntityBuilder<'w, 'w> {
         let to_create = self.entities.spawn_unfinished();
-        ImmediateEntityBuilder::new(self, to_create)
+        EntityBuilder::new_immediate(self, to_create)
     }
 
     /// Spawn a new empty entity.
@@ -192,7 +190,9 @@ impl World {
     pub(crate) fn run_creation_callbacks(&self, e: Entity) {
         let access = CallbackWorldAccess::new(self);
         for (tid, comp) in self.entities.get(e).components() {
-            if let Some(cb) = self.callbacks.get(tid).and_then(Callbacks::get_create) {
+            if let Some(cb) =
+                self.callbacks.get(tid).and_then(Callbacks::get_create)
+            {
                 // i am *pretty* sure this will never be locked?
                 let comp = comp.try_read().unwrap();
                 cb(comp.as_ref(), e, &access);
@@ -202,7 +202,9 @@ impl World {
     pub(crate) fn run_removal_callback(&self, e: Entity, comps: EntityAssoc) {
         let access = CallbackWorldAccess::new(self);
         for (tid, comp) in comps.into_iter() {
-            if let Some(cb) = self.callbacks.get(&tid).and_then(Callbacks::get_remove) {
+            if let Some(cb) =
+                self.callbacks.get(&tid).and_then(Callbacks::get_remove)
+            {
                 let comp = comp.into_inner().unwrap();
                 cb(comp, e, &access);
             }
@@ -251,18 +253,25 @@ impl AccessEntityStats for World {
 }
 
 impl AccessQuery for World {
-    fn query<'c, Q: Query<'c>>(&'c self, interrogatee: Entity) -> Option<Q::Response> {
+    fn query<'c, Q: Query<'c>>(
+        &'c self,
+        interrogatee: Entity,
+    ) -> Option<Q::Response> {
         let comps = self.entities.get(interrogatee);
         Q::query(interrogatee, comps)
     }
 }
 
 impl AccessResources for World {
-    fn read_resource<R: Resource>(&self) -> Result<ReadResource<'_, R>, ResourceLookupError> {
+    fn read_resource<R: Resource>(
+        &self,
+    ) -> Result<ReadResource<'_, R>, ResourceLookupError> {
         self.resources.read()
     }
 
-    fn write_resource<R: Resource>(&self) -> Result<WriteResource<'_, R>, ResourceLookupError> {
+    fn write_resource<R: Resource>(
+        &self,
+    ) -> Result<WriteResource<'_, R>, ResourceLookupError> {
         self.resources.write()
     }
 
@@ -309,23 +318,29 @@ pub(crate) fn dispatch_even_innerer(
     target: Entity,
     mut msg: Box<dyn Message>,
 ) -> Box<dyn Message> {
-    let event_handlers = match access.world.msg_table.get(&(*msg).type_id_wrapper()) {
-        Some(it) => it,
-        None => {
-            // i've never met this event type in my life
-            return msg;
-        }
-    };
+    let event_handlers =
+        match access.world.msg_table.get(&(*msg).type_id_wrapper()) {
+            Some(it) => it,
+            None => {
+                // i've never met this event type in my life
+                return msg;
+            }
+        };
 
     let components = access.world.entities.get(target);
     for (tid, comp) in components.iter() {
         if let Some(handler) = event_handlers.get(&tid) {
-            let lock = comp.try_read().unwrap_or_else(|_| loop_panic(target, tid));
+            let lock =
+                comp.try_read().unwrap_or_else(|_| loop_panic(target, tid));
             let msg2 = match handler {
-                MsgHandlerInner::Read(handler) => handler(&**lock, msg, target, access),
+                MsgHandlerInner::Read(handler) => {
+                    handler(&**lock, msg, target, access)
+                }
                 MsgHandlerInner::Write(handler) => {
                     drop(lock);
-                    let mut lock = comp.try_write().unwrap_or_else(|_| loop_panic(target, tid));
+                    let mut lock = comp
+                        .try_write()
+                        .unwrap_or_else(|_| loop_panic(target, tid));
                     handler(&mut **lock, msg, target, access)
                 }
             };
