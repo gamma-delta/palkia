@@ -16,18 +16,25 @@ use crate::{entities::EntityAssoc, ToTypeIdWrapper};
 ///
 /// When sending a message to an entity, components will recieve the message in the order that things were
 /// added to the builder.
-pub unsafe trait EntityBuilder: Sized {
+///
+/// The `Sized` bound isn't on the builder itself, so it can be type-erased for the benefit of Dialga.
+pub unsafe trait EntityBuilder {
     /// Insert the given type-erased component into the entity.
     /// If there was a component with that type already on the entity, replaces and returns the old component.
     ///
     /// You should probably not be calling this; try [`insert`][EntityBuilder::insert].
     ///
     /// SAFETY: This must *only ever* return the *same* type of component as passed in if it returns anything.
-    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>;
+    fn insert_raw(&mut self, component: Box<dyn Component>) -> Option<Box<dyn Component>>
+    where
+        Self: Sized;
 
     /// Insert the given component into the tentative entity. If there was a component with that type already on
     /// the entity, replaces and returns the old component.
-    fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+    fn insert<C: Component>(&mut self, component: C) -> Option<C>
+    where
+        Self: Sized,
+    {
         let erased = Box::new(component);
         self.insert_raw(erased).map(|cmp| {
             // SAFETY: the unsafe impl of `insert_erased` must be implemented correctly to not return a bad type
@@ -37,7 +44,10 @@ pub unsafe trait EntityBuilder: Sized {
 
     /// Insert the given component into the entity. Like [`insert`][`EntityBuilder::insert`], but returns `self`
     /// for chaining.
-    fn with<C: Component>(mut self, component: C) -> Self {
+    fn with<C: Component>(mut self, component: C) -> Self
+    where
+        Self: Sized,
+    {
         self.insert(component);
         self
     }
@@ -53,7 +63,9 @@ pub unsafe trait EntityBuilder: Sized {
     /// Consume this and insert the entity into the world, returning it to the caller.
     ///
     /// Note that if you *don't* call this, there will be panics.
-    fn build(self) -> Entity;
+    fn build(self) -> Entity
+    where
+        Self: Sized;
 }
 
 #[derive(Default)]
