@@ -128,6 +128,26 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     pub fn get_access_mut(&mut self) -> &mut EntityBuilderAccess<'a, 'w> {
         &mut self.access
     }
+
+    /// If a component with the given type exists on the builder,
+    /// get a reference to it.
+    pub fn get_component<C: Component>(&self) -> Option<&C> {
+        let tid = TypeIdWrapper::of::<C>();
+        let idx = self.tracker.component_idxs.get(&tid)?;
+        let boxed = &self.tracker.components[*idx];
+        // SAFETY: type guards
+        Some(unsafe { boxed.downcast_ref().unwrap_unchecked() })
+    }
+
+    /// If a component with the given type exists on the builder,
+    /// get a mutable referece to it.
+    pub fn get_component_mut<C: Component>(&mut self) -> Option<&mut C> {
+        let tid = TypeIdWrapper::of::<C>();
+        let idx = self.tracker.component_idxs.get(&tid)?;
+        let boxed = &mut self.tracker.components[*idx];
+        // SAFETY: type guards
+        Some(unsafe { boxed.downcast_mut().unwrap_unchecked() })
+    }
 }
 
 /// Access that an EntityBuilder gets to the world, whether immediate or deferred.
@@ -139,7 +159,7 @@ pub enum EntityBuilderAccess<'a, 'w> {
 #[derive(Default)]
 pub(crate) struct EntityBuilderComponentTracker {
     pub(crate) components: Vec<Box<dyn Component>>,
-    component_ids: BTreeMap<TypeIdWrapper, usize>,
+    component_idxs: BTreeMap<TypeIdWrapper, usize>,
 }
 
 impl EntityBuilderComponentTracker {
@@ -171,14 +191,14 @@ impl EntityBuilderComponentTracker {
             panic!("tried to add a component of type {} to an entity, but that type was not registered", tid.type_name);
         }
 
-        if let Some(clobberee) = self.component_ids.get(&tid) {
+        if let Some(clobberee) = self.component_idxs.get(&tid) {
             let old =
                 std::mem::replace(&mut self.components[*clobberee], component);
             Some(old)
         } else {
             let idx = self.components.len();
             self.components.push(component);
-            self.component_ids.insert(tid, idx);
+            self.component_idxs.insert(tid, idx);
             None
         }
     }
