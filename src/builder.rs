@@ -119,16 +119,19 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
         self.entity
     }
 
-    /// Get whether this is immediate mode or not, if you care for some reason.
-    pub fn is_immediate(&self) -> bool {
-        match self.access {
-            EntityBuilderAccess::Immediate(_) => true,
-            EntityBuilderAccess::Lazy(_) => false,
-        }
+    /// Get raw access to the builder's view on the world.
+    pub fn get_access(&self) -> &EntityBuilderAccess<'a, 'w> {
+        &self.access
+    }
+
+    /// Get raw mutable access to the builder's view on the world.
+    pub fn get_access_mut(&mut self) -> &mut EntityBuilderAccess<'a, 'w> {
+        &mut self.access
     }
 }
 
-pub(crate) enum EntityBuilderAccess<'a, 'w> {
+/// Access that an EntityBuilder gets to the world, whether immediate or deferred.
+pub enum EntityBuilderAccess<'a, 'w> {
     Immediate(&'w mut World),
     Lazy(&'a ListenerWorldAccess<'w>),
 }
