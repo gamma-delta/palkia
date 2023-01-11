@@ -147,6 +147,20 @@ impl World {
         EntityBuilder::new_lazy_world(self, entity)
     }
 
+    /// Despawn an entity immediately. Panics if the entity does not exist.
+    pub fn despawn(&mut self, entity: Entity) {
+        self.entities.despawn(entity);
+    }
+
+    /// Lazily despawn an entity immediately; it will be removed once [`World::finalize`] is called.
+    ///
+    /// Panics if the entity does not exist.
+    pub fn lazy_despawn(&mut self, entity: Entity) {
+        self.lazy_sender
+            .send(LazyUpdate::DespawnEntity(entity))
+            .unwrap();
+    }
+
     /// Convenience method to dispatch a message to all entities, cloning it for each entity.
     pub fn dispatch_to_all<M: Message + Clone>(&self, msg: M) {
         for e in self.entities.iter() {
