@@ -52,6 +52,21 @@ fn spawn_dedespawn() {
     assert_eq!(world.len(), 1)
 }
 
+#[test]
+fn spawn_again() {
+    let mut world = World::new();
+    world.register_component::<Rabbit>();
+
+    let mut builder = world.spawn();
+
+    let builder2 = builder.spawn_again();
+    builder2.with(Rabbit).build();
+
+    builder.with(Rabbit).build();
+
+    assert_eq!(world.len(), 2);
+}
+
 struct Rabbit;
 
 impl Rabbit {

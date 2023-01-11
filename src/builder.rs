@@ -171,11 +171,12 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     /// the same as `self` is.
     ///
     /// Mostly for use in Dialga.
-    pub fn spawn_again<'a2, 'w2>(&'a mut self) -> EntityBuilder<'a2, 'w2>
+    pub fn spawn_again<'me, 'a2, 'w2>(&'me mut self) -> EntityBuilder<'a2, 'w2>
     where
         'a: 'a2,
         'w: 'w2,
-        'a: 'w2,
+        'me: 'a2,
+        'me: 'w2,
     {
         match self.access {
             EntityBuilderAccess::Immediate(ref mut world) => world.spawn(),
