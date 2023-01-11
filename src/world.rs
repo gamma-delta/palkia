@@ -155,7 +155,7 @@ impl World {
     /// Lazily despawn an entity immediately; it will be removed once [`World::finalize`] is called.
     ///
     /// Panics if the entity does not exist.
-    pub fn lazy_despawn(&mut self, entity: Entity) {
+    pub fn lazy_despawn(&self, entity: Entity) {
         self.lazy_sender
             .send(LazyUpdate::DespawnEntity(entity))
             .unwrap();

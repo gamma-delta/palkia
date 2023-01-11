@@ -8,10 +8,11 @@ fn lazy_spawn() {
     world.register_component::<Bar>();
     world.register_component::<Baz>();
 
-    let e = world.lazy_spawn().with(Foo).with(Bar).build();
+    let world_ref = &world;
+    let e = world_ref.lazy_spawn().with(Foo).with(Bar).build();
     for _ in 0..100 {
-        world.lazy_spawn().with(Baz).build();
-        assert_eq!(world.len(), 0);
+        world_ref.lazy_spawn().with(Baz).build();
+        assert_eq!(world_ref.len(), 0);
     }
 
     world.finalize();
@@ -32,8 +33,9 @@ fn lazy_despawn() {
         })
         .collect::<Vec<_>>();
 
+    let world_ref = &world;
     for e in es {
-        world.lazy_despawn(e);
+        world_ref.lazy_despawn(e);
     }
 
     assert_eq!(world.len(), 100);
