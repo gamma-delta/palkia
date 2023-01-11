@@ -40,6 +40,14 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
         }
     }
 
+    pub(crate) fn new_lazy_world(world: &'w World, entity: Entity) -> Self {
+        Self {
+            entity,
+            tracker: EntityBuilderComponentTracker::new(),
+            access: EntityBuilderAccess::LazyWorld(world),
+        }
+    }
+
     pub(crate) fn new_immediate(world: &'w mut World, entity: Entity) -> Self {
         Self {
             entity,
@@ -60,6 +68,7 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
         let world = match self.access {
             EntityBuilderAccess::Immediate(ref world) => world,
             EntityBuilderAccess::Lazy(lazy) => lazy.world,
+            EntityBuilderAccess::LazyWorld(ref world) => world,
         };
         self.tracker
             .insert_raw(component, &world.known_component_types)
@@ -115,6 +124,15 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
                     self.entity,
                 ));
             }
+            EntityBuilderAccess::LazyWorld(world) => {
+                world
+                    .lazy_sender
+                    .send(LazyUpdate::FinishEntity(
+                        self.tracker.components,
+                        self.entity,
+                    ))
+                    .unwrap();
+            }
         }
         self.entity
     }
@@ -148,12 +166,30 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
         // SAFETY: type guards
         Some(unsafe { boxed.downcast_mut().unwrap_unchecked() })
     }
+
+    /// Create a new [`EntityBuilder`] from this one. It will be lazy or unlazy
+    /// the same as `self` is.
+    ///
+    /// Mostly for use in Dialga.
+    pub fn spawn_again<'a2, 'w2>(&'a mut self) -> EntityBuilder<'a2, 'w2>
+    where
+        'a: 'a2,
+        'w: 'w2,
+        'a: 'w2,
+    {
+        match self.access {
+            EntityBuilderAccess::Immediate(ref mut world) => world.spawn(),
+            EntityBuilderAccess::Lazy(lazy) => lazy.lazy_spawn(),
+            EntityBuilderAccess::LazyWorld(world) => world.lazy_spawn(),
+        }
+    }
 }
 
 /// Access that an EntityBuilder gets to the world, whether immediate or deferred.
 pub enum EntityBuilderAccess<'a, 'w> {
     Immediate(&'w mut World),
     Lazy(&'a ListenerWorldAccess<'w>),
+    LazyWorld(&'a World),
 }
 
 #[derive(Default)]

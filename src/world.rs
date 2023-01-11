@@ -139,6 +139,14 @@ impl World {
         e
     }
 
+    /// Set up a builder to spawn an entity once `finalize` has been called.
+    ///
+    /// The advantage of this is it doesn't need mutable access.
+    pub fn lazy_spawn<'w>(&'w self) -> EntityBuilder<'w, 'w> {
+        let entity = self.entities.spawn_unfinished();
+        EntityBuilder::new_lazy_world(self, entity)
+    }
+
     /// Convenience method to dispatch a message to all entities, cloning it for each entity.
     pub fn dispatch_to_all<M: Message + Clone>(&self, msg: M) {
         for e in self.entities.iter() {
