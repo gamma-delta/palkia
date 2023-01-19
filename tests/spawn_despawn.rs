@@ -4,123 +4,151 @@ use palkia::prelude::*;
 
 #[test]
 fn spawn() {
-    let mut world = World::new();
+  let mut world = World::new();
 
-    world.register_component::<Rabbit>();
+  world.register_component::<Rabbit>();
 
-    world.spawn().with(Rabbit).build();
+  world.spawn().with(Rabbit).build();
 
-    for _ in 0..16 {
-        world.dispatch_to_all(MsgReproduceMitosis);
-        world.finalize();
-    }
+  for _ in 0..16 {
+    world.dispatch_to_all(MsgReproduceMitosis);
+    world.finalize();
+  }
 
-    // Each generation the population doubles
-    assert_eq!(world.len(), 2usize.pow(16));
+  // Each generation the population doubles
+  assert_eq!(world.len(), 2usize.pow(16));
 }
 
 #[test]
 fn spawn_despawn() {
-    let mut world = World::new();
+  let mut world = World::new();
 
-    world.register_component::<Rabbit>();
+  world.register_component::<Rabbit>();
 
-    world.spawn().with(Rabbit).build();
+  world.spawn().with(Rabbit).build();
 
-    for _ in 0..16 {
-        world.dispatch_to_all(MsgReproduceAndDie);
-        world.finalize();
-    }
+  for _ in 0..16 {
+    world.dispatch_to_all(MsgReproduceAndDie);
+    world.finalize();
+  }
 
-    // Each generation the population still doubles!
-    assert_eq!(world.len(), 2usize.pow(16))
+  // Each generation the population still doubles!
+  assert_eq!(world.len(), 2usize.pow(16))
 }
 
 #[test]
 fn spawn_dedespawn() {
-    let mut world = World::new();
+  let mut world = World::new();
 
-    world.register_component::<Rabbit>();
+  world.register_component::<Rabbit>();
 
-    world.spawn().with(Rabbit).build();
+  world.spawn().with(Rabbit).build();
 
-    for _ in 0..100 {
-        world.dispatch_to_all(MsgReproduceAndDieAndDie);
-        world.finalize();
-    }
+  for _ in 0..100 {
+    world.dispatch_to_all(MsgReproduceAndDieAndDie);
+    world.finalize();
+  }
 
-    assert_eq!(world.len(), 1)
+  assert_eq!(world.len(), 1)
 }
 
 #[test]
 fn spawn_again() {
-    let mut world = World::new();
-    world.register_component::<Rabbit>();
+  let mut world = World::new();
+  world.register_component::<Rabbit>();
 
-    let mut builder = world.spawn();
+  let mut builder = world.spawn();
 
-    let builder2 = builder.spawn_again();
-    builder2.with(Rabbit).build();
+  let builder2 = builder.spawn_again();
+  builder2.with(Rabbit).build();
 
-    builder.with(Rabbit).build();
+  builder.with(Rabbit).build();
 
-    assert_eq!(world.len(), 2);
+  assert_eq!(world.len(), 2);
+}
+
+#[test]
+fn infanticide() {
+  let mut world = World::new();
+  world.register_component::<Rabbit>();
+
+  world.spawn_1(Rabbit);
+
+  for _ in 0..100 {
+    world.dispatch_to_all(MsgReproduceButThenJustKillYourOffspring);
+    world.finalize();
+    assert_eq!(world.len(), 1);
+  }
 }
 
 struct Rabbit;
 
 impl Rabbit {
-    /// Every rabbit duplicates itself.
-    fn mitosis(
-        &self,
-        event: MsgReproduceMitosis,
-        _: Entity,
-        access: &ListenerWorldAccess,
-    ) -> MsgReproduceMitosis {
-        access.lazy_spawn().with(Rabbit).build();
+  /// Every rabbit duplicates itself.
+  fn mitosis(
+    &self,
+    event: MsgReproduceMitosis,
+    _: Entity,
+    access: &ListenerWorldAccess,
+  ) -> MsgReproduceMitosis {
+    access.lazy_spawn().with(Rabbit).build();
 
-        event
-    }
+    event
+  }
 
-    fn reproduce_and_die(
-        &self,
-        event: MsgReproduceAndDie,
-        this: Entity,
-        access: &ListenerWorldAccess,
-    ) -> MsgReproduceAndDie {
-        // Make sure that interleaving birth and death works
-        access.lazy_spawn().with(Rabbit).build();
-        access.lazy_despawn(this);
-        access.lazy_spawn().with(Rabbit).build();
+  fn reproduce_and_die(
+    &self,
+    event: MsgReproduceAndDie,
+    this: Entity,
+    access: &ListenerWorldAccess,
+  ) -> MsgReproduceAndDie {
+    // Make sure that interleaving birth and death works
+    access.lazy_spawn().with(Rabbit).build();
+    access.lazy_despawn(this);
+    access.lazy_spawn().with(Rabbit).build();
 
-        event
-    }
+    event
+  }
 
-    fn reproduce_and_die_and_die(
-        &self,
-        event: MsgReproduceAndDieAndDie,
-        this: Entity,
-        access: &ListenerWorldAccess,
-    ) -> MsgReproduceAndDieAndDie {
-        // Make sure killing twice isn't a problem
-        access.lazy_spawn().with(Rabbit).build();
-        access.lazy_despawn(this);
-        access.lazy_despawn(this);
+  fn reproduce_and_die_and_die(
+    &self,
+    event: MsgReproduceAndDieAndDie,
+    this: Entity,
+    access: &ListenerWorldAccess,
+  ) -> MsgReproduceAndDieAndDie {
+    // Make sure killing twice isn't a problem
+    access.lazy_spawn().with(Rabbit).build();
+    access.lazy_despawn(this);
+    access.lazy_despawn(this);
 
-        event
-    }
+    event
+  }
+
+  fn reproduce_and_infanticide(
+    &self,
+    event: MsgReproduceButThenJustKillYourOffspring,
+    _this: Entity,
+    access: &ListenerWorldAccess,
+  ) -> MsgReproduceButThenJustKillYourOffspring {
+    // Make sure killing twice isn't a problem
+    let kiddo = access.lazy_spawn().with(Rabbit).build();
+    access.lazy_despawn(kiddo);
+
+    event
+  }
 }
 
 impl Component for Rabbit {
-    fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
-    where
-        Self: Sized,
-    {
-        builder
-            .handle_read(Rabbit::mitosis)
-            .handle_read(Rabbit::reproduce_and_die)
-            .handle_read(Rabbit::reproduce_and_die_and_die)
-    }
+  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  where
+    Self: Sized,
+  {
+    builder
+      .handle_read(Rabbit::mitosis)
+      .handle_read(Rabbit::reproduce_and_die)
+      .handle_read(Rabbit::reproduce_and_die_and_die)
+      .handle_read(Rabbit::reproduce_and_infanticide)
+  }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -137,3 +165,8 @@ impl Message for MsgReproduceAndDie {}
 struct MsgReproduceAndDieAndDie;
 
 impl Message for MsgReproduceAndDieAndDie {}
+
+#[derive(Debug, Clone, Copy)]
+struct MsgReproduceButThenJustKillYourOffspring;
+
+impl Message for MsgReproduceButThenJustKillYourOffspring {}
