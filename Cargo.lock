@@ -392,9 +392,19 @@ dependencies = [
  "kdl",
  "knurdy",
  "miette",
+ "palkia_macros",
  "serde",
  "smol_str 0.2.0",
  "thiserror",
+]
+
+[[package]]
+name = "palkia_macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

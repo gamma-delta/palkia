@@ -16,6 +16,9 @@ pub mod world;
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;
 
+#[cfg(feature = "derive")]
+pub use palkia_macros as proc_macros;
+
 use std::{
   any::{self, TypeId},
   fmt::Debug,
@@ -111,11 +114,6 @@ fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
 
 pub mod prelude {
   //! Handy module to glob-import and get everything in the crate.
-  #[cfg(feature = "serde")]
-  pub use crate::serde::{
-    EntityDeContext, EntitySerContext, ResourceDeContext, ResourceSerContext,
-    SerKey, WorldSerdeInstructions,
-  };
   pub use crate::{
     access::{
       AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
@@ -129,4 +127,13 @@ pub mod prelude {
     resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
     world::World,
   };
+
+  #[cfg(feature = "serde")]
+  pub use crate::serde::{
+    EntityDeContext, EntitySerContext, ResourceDeContext, ResourceSerContext,
+    SerKey, WorldSerdeInstructions,
+  };
+
+  #[cfg(feature = "derive")]
+  pub use crate::proc_macros::*;
 }
