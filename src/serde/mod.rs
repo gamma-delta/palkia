@@ -84,175 +84,175 @@ use ahash::AHashMap;
 use std::hash::Hash;
 
 use serde::{
-    de::{DeserializeOwned, DeserializeSeed, MapAccess},
-    Deserializer, Serialize, Serializer,
+  de::{DeserializeOwned, DeserializeSeed, MapAccess},
+  Deserializer, Serialize, Serializer,
 };
 
 use crate::{
-    entities::{EntityAssoc, EntityStorage},
-    prelude::{AccessEntityStats, Entity, World},
+  entities::{EntityAssoc, EntityStorage},
+  prelude::{AccessEntityStats, Entity, World},
 };
 
 use self::{
-    entity::EntitySerWrapper,
-    resource::ResourcesSerWrapper,
-    wrapper::{DeWorldDeserializer, SerWorld},
+  entity::EntitySerWrapper,
+  resource::ResourcesSerWrapper,
+  wrapper::{DeWorldDeserializer, SerWorld},
 };
 
 impl World {
-    /// Serialize the whole world through the given serializer. This includes all the entities and their
-    /// components, their IDs, and resources.
-    ///
-    /// The `Id` generic is the type components use to identify themselves. See the doc comment for [`SerKey`].
-    ///
-    /// Note that this uses a serializer, not the front-end `to_string` functions many serde crates provide as convenience.
-    /// The workflow will probably look something like
-    ///
-    /// ```text
-    /// let mut writer = Vec::new();
-    /// let mut serializer = MySerdeSerializer::new(&mut writer);
-    /// // The `Ok` variant is often just ()
-    /// world.serialize(&mut serializer).unwrap();
-    /// String::from_utf8(writer).unwrap();
-    /// ```
-    ///
-    /// See the `serde` tests for practical examples.
-    pub fn serialize<
-        W: WorldSerdeInstructions<ResId, CmpId>,
-        S: Serializer,
-        ResId: SerKey,
-        CmpId: SerKey,
-    >(
-        &mut self,
-        instrs: W,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        let allocator = self.entities.allocator.try_read().unwrap();
-        let entity_wrappers = self
-            .iter()
-            .map(|e| (e, EntitySerWrapper::new(self, &instrs, e)))
-            .collect();
+  /// Serialize the whole world through the given serializer. This includes all the entities and their
+  /// components, their IDs, and resources.
+  ///
+  /// The `Id` generic is the type components use to identify themselves. See the doc comment for [`SerKey`].
+  ///
+  /// Note that this uses a serializer, not the front-end `to_string` functions many serde crates provide as convenience.
+  /// The workflow will probably look something like
+  ///
+  /// ```text
+  /// let mut writer = Vec::new();
+  /// let mut serializer = MySerdeSerializer::new(&mut writer);
+  /// // The `Ok` variant is often just ()
+  /// world.serialize(&mut serializer).unwrap();
+  /// String::from_utf8(writer).unwrap();
+  /// ```
+  ///
+  /// See the `serde` tests for practical examples.
+  pub fn serialize<
+    W: WorldSerdeInstructions<ResId, CmpId>,
+    S: Serializer,
+    ResId: SerKey,
+    CmpId: SerKey,
+  >(
+    &mut self,
+    instrs: W,
+    serializer: S,
+  ) -> Result<S::Ok, S::Error> {
+    let allocator = self.entities.allocator.try_read().unwrap();
+    let entity_wrappers = self
+      .iter()
+      .map(|e| (e, EntitySerWrapper::new(self, &instrs, e)))
+      .collect();
 
-        let resource_wrappers = ResourcesSerWrapper::new(&instrs, self);
+    let resource_wrappers = ResourcesSerWrapper::new(&instrs, self);
 
-        let ser_world = SerWorld {
-            allocator: &allocator,
-            entity_wrappers,
-            resource_wrappers,
-        };
-        ser_world.serialize(serializer)
+    let ser_world = SerWorld {
+      allocator: &allocator,
+      entity_wrappers,
+      resource_wrappers,
+    };
+    ser_world.serialize(serializer)
+  }
+
+  /// Clears the entities in the world, and loads all the entities and resources out of the given deserializer
+  /// and into the world.
+  ///
+  /// If a resource is found both in the serialized data and the world, the serialized resource will replace the
+  /// present one, but old resources will stick around.
+  ///
+  /// You should register your component types, then call this. (There will be panics otherwise.)
+  pub fn deserialize<
+    'a,
+    'de,
+    W: WorldSerdeInstructions<ResId, CmpId>,
+    D: Deserializer<'de>,
+    ResId: SerKey,
+    CmpId: SerKey,
+  >(
+    &'a mut self,
+    instrs: W,
+    deserializer: D,
+  ) -> Result<(), D::Error>
+  where
+    'de: 'a,
+  {
+    let de_world = {
+      let seed = DeWorldDeserializer::new(&instrs, &self.known_component_types);
+      seed.deserialize(deserializer)?
+    };
+
+    for (_, res) in de_world.resource_wrappers {
+      self.resources.insert_raw(res);
     }
 
-    /// Clears the entities in the world, and loads all the entities and resources out of the given deserializer
-    /// and into the world.
-    ///
-    /// If a resource is found both in the serialized data and the world, the serialized resource will replace the
-    /// present one, but old resources will stick around.
-    ///
-    /// You should register your component types, then call this. (There will be panics otherwise.)
-    pub fn deserialize<
-        'a,
-        'de,
-        W: WorldSerdeInstructions<ResId, CmpId>,
-        D: Deserializer<'de>,
-        ResId: SerKey,
-        CmpId: SerKey,
-    >(
-        &'a mut self,
-        instrs: W,
-        deserializer: D,
-    ) -> Result<(), D::Error>
-    where
-        'de: 'a,
-    {
-        let de_world = {
-            let seed = DeWorldDeserializer::new(&instrs, &self.known_component_types);
-            seed.deserialize(deserializer)?
-        };
+    let allocator = de_world.allocator;
+    let mut assocs = AHashMap::new();
 
-        for (_, res) in de_world.resource_wrappers {
-            self.resources.insert_raw(res);
-        }
+    let mut to_callback = Vec::with_capacity(de_world.entity_wrappers.len());
+    for (entity, builder) in de_world.entity_wrappers {
+      assert!(allocator.contains(entity.0), "when deserializing, found an entity {:?} marked in the components but not in the allocator", entity);
 
-        let allocator = de_world.allocator;
-        let mut assocs = AHashMap::new();
+      let assoc = EntityAssoc::new(builder.components);
+      assocs.insert(entity, assoc);
 
-        let mut to_callback = Vec::with_capacity(de_world.entity_wrappers.len());
-        for (entity, builder) in de_world.entity_wrappers {
-            assert!(allocator.contains(entity.0), "when deserializing, found an entity {:?} marked in the components but not in the allocator", entity);
-
-            let assoc = EntityAssoc::new(builder.components);
-            assocs.insert(entity, assoc);
-
-            to_callback.push(entity);
-        }
-        self.entities = EntityStorage::new(allocator, assocs);
-
-        for e in to_callback {
-            self.run_creation_callbacks(e);
-        }
-
-        Ok(())
+      to_callback.push(entity);
     }
+    self.entities = EntityStorage::new(allocator, assocs);
+
+    for e in to_callback {
+      self.run_creation_callbacks(e);
+    }
+
+    Ok(())
+  }
 }
 
 /// Instructions for serializing and deserializing the various components and resources in the world.
 ///
 /// `ResId` is the key type for resources, and `CmpId` is the key type for components.
 pub trait WorldSerdeInstructions<ResId: SerKey, CmpId: SerKey> {
-    /// Serialize the components on an entity.
-    ///
-    /// Although the internals are exposed, for almost all cases you should just be calling
-    /// [`EntitySerContext::try_serialize`] for each component type you want to serialize.
-    fn serialize_entity<S: Serializer>(
-        &self,
-        ctx: EntitySerContext<'_, '_, CmpId, S>,
-    ) -> Result<(), S::Error>;
+  /// Serialize the components on an entity.
+  ///
+  /// Although the internals are exposed, for almost all cases you should just be calling
+  /// [`EntitySerContext::try_serialize`] for each component type you want to serialize.
+  fn serialize_entity<S: Serializer>(
+    &self,
+    ctx: EntitySerContext<'_, '_, CmpId, S>,
+  ) -> Result<(), S::Error>;
 
-    /// Return the number of serializable components on the given entity.
-    ///
-    /// Certain serializers require the number of items in a map to be known before the map is serialized,
-    /// so if you're using one of those you must implement this method. By default, it returns `None`.
-    fn component_count(&self, entity: Entity, world: &World) -> Option<usize> {
-        let _ = entity;
-        let _ = world;
-        None
-    }
+  /// Return the number of serializable components on the given entity.
+  ///
+  /// Certain serializers require the number of items in a map to be known before the map is serialized,
+  /// so if you're using one of those you must implement this method. By default, it returns `None`.
+  fn component_count(&self, entity: Entity, world: &World) -> Option<usize> {
+    let _ = entity;
+    let _ = world;
+    None
+  }
 
-    /// Try to deserialize the given component from an entity.
-    ///
-    /// See the serde tests for how the implementation should look.
-    fn deserialize_entity<'a, 'de, M: MapAccess<'de>>(
-        &'a self,
-        ctx: &mut EntityDeContext<'_, 'de, M, CmpId>,
-    ) -> Result<(), M::Error>
-    where
-        'de: 'a;
+  /// Try to deserialize the given component from an entity.
+  ///
+  /// See the serde tests for how the implementation should look.
+  fn deserialize_entity<'a, 'de, M: MapAccess<'de>>(
+    &'a self,
+    ctx: &mut EntityDeContext<'_, 'de, M, CmpId>,
+  ) -> Result<(), M::Error>
+  where
+    'de: 'a;
 
-    /// Serialize a resource.
-    ///
-    /// For almost all cases you should just be calling [`ResourceSerContext::try_serialize`] for each
-    /// resource type you'd like to serialize.
-    fn serialize_resource<S: Serializer>(
-        &self,
-        ctx: ResourceSerContext<'_, '_, ResId, S>,
-    ) -> Result<(), S::Error>;
+  /// Serialize a resource.
+  ///
+  /// For almost all cases you should just be calling [`ResourceSerContext::try_serialize`] for each
+  /// resource type you'd like to serialize.
+  fn serialize_resource<S: Serializer>(
+    &self,
+    ctx: ResourceSerContext<'_, '_, ResId, S>,
+  ) -> Result<(), S::Error>;
 
-    /// Return the number of serializable resources on the world.
-    ///
-    /// Certain serializers require the number of items in a map to be known before the map is serialized,
-    /// so if you're using one of those you must implement this method. By default, it returns `None`.
-    fn resource_count(&self, world: &World) -> Option<usize> {
-        let _ = world;
-        None
-    }
+  /// Return the number of serializable resources on the world.
+  ///
+  /// Certain serializers require the number of items in a map to be known before the map is serialized,
+  /// so if you're using one of those you must implement this method. By default, it returns `None`.
+  fn resource_count(&self, world: &World) -> Option<usize> {
+    let _ = world;
+    None
+  }
 
-    fn deserialize_resource<'a, 'de, M: MapAccess<'de>>(
-        &'a self,
-        ctx: &mut ResourceDeContext<'_, 'de, M, ResId>,
-    ) -> Result<(), M::Error>
-    where
-        'de: 'a;
+  fn deserialize_resource<'a, 'de, M: MapAccess<'de>>(
+    &'a self,
+    ctx: &mut ResourceDeContext<'_, 'de, M, ResId>,
+  ) -> Result<(), M::Error>
+  where
+    'de: 'a;
 }
 
 /// Types that can be used as an id when serializing components and resources.
@@ -263,11 +263,28 @@ pub trait WorldSerdeInstructions<ResId: SerKey, CmpId: SerKey> {
 /// I would love to use [`TypeID`](std::any::TypeId) for this and have it happen automatically,
 /// but `TypeID`'s specific values aren't stable between rustc versions. So you have to provide it yourself.
 pub trait SerKey:
-    Clone + Hash + PartialEq + Eq + Serialize + DeserializeOwned + Send + Sync + 'static
+  Clone
+  + Hash
+  + PartialEq
+  + Eq
+  + Serialize
+  + DeserializeOwned
+  + Send
+  + Sync
+  + 'static
 {
 }
 
-impl<T: Clone + Hash + PartialEq + Eq + Serialize + DeserializeOwned + Send + Sync + 'static> SerKey
-    for T
+impl<
+    T: Clone
+      + Hash
+      + PartialEq
+      + Eq
+      + Serialize
+      + DeserializeOwned
+      + Send
+      + Sync
+      + 'static,
+  > SerKey for T
 {
 }

@@ -6,6 +6,7 @@ pub mod builder;
 pub mod callback;
 pub mod component;
 pub mod entities;
+pub mod fabricator;
 pub mod messages;
 pub mod query;
 pub mod resource;

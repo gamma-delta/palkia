@@ -15,10 +15,19 @@ categories = ["game-development"]
 ahash = "0.7.6"
 crossbeam = "0.8.1"
 downcast = "0.11.0"
+eyre = "0.6.8"
 generational-arena = "0.2.8"
 indexmap = "1.9.1"
 
+# Blueprinting stuff
+smol_str = "0.2.0"
+thiserror = "1.0.43"
+kdl = "4.6.0"
+miette = "5.10.0"
+
+# Serdeez nuts
 serde = { version = "1.0.143", optional = true, features = ["derive"] }
+knurdy = { version = "0.1.2", optional = true }
 
 [dev-dependencies]
 aglet = "0.1.1"
@@ -29,7 +38,7 @@ fastrand = "1.7.0"
 [features]
 default = ["serde"]
 
-serde = ["dep:serde", "ahash/serde", "generational-arena/serde"]
+serde = ["dep:serde", "ahash/serde", "generational-arena/serde", "dep:knurdy"]
 
 # https://github.com/rust-random/rand/issues/986
 [package.metadata.docs.rs]
