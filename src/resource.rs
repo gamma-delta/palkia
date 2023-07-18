@@ -58,34 +58,50 @@ impl ResourceMap {
   pub fn read<T: Resource>(
     &self,
   ) -> Result<ReadResource<'_, T>, ResourceLookupError> {
-    let resource = match self.map.get(&TypeIdWrapper::of::<T>()) {
-      Some(it) => it,
-      None => return Err(ResourceLookupError::NotFound),
+    let tid = TypeIdWrapper::of::<T>();
+
+    let result = 'try_at_home: {
+      let Some(resource) = self.map.get(&tid) else {
+        break 'try_at_home Err(ResourceLookupErrorKind::NotFound);
+      };
+
+      let lock = match resource.try_read() {
+        Ok(it) => it,
+        Err(TryLockError::WouldBlock) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Locked)
+        }
+        Err(TryLockError::Poisoned(_)) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Poisoned)
+        }
+      };
+
+      Ok(ReadResource(lock, PhantomData))
     };
-    let lock = match resource.try_read() {
-      Ok(it) => it,
-      Err(TryLockError::WouldBlock) => return Err(ResourceLookupError::Locked),
-      Err(TryLockError::Poisoned(_)) => {
-        return Err(ResourceLookupError::Poisoned)
-      }
-    };
-    Ok(ReadResource(lock, PhantomData))
+    result.map_err(|kind| ResourceLookupError { tid, kind })
   }
+
   pub fn write<T: Resource>(
     &self,
   ) -> Result<WriteResource<'_, T>, ResourceLookupError> {
-    let resource = match self.map.get(&TypeIdWrapper::of::<T>()) {
-      Some(it) => it,
-      None => return Err(ResourceLookupError::NotFound),
+    let tid = TypeIdWrapper::of::<T>();
+
+    let result = 'try_at_home: {
+      let Some(resource) = self.map.get(&tid) else {
+        break 'try_at_home Err(ResourceLookupErrorKind::NotFound);
+      };
+      let lock = match resource.try_write() {
+        Ok(it) => it,
+        Err(TryLockError::WouldBlock) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Locked)
+        }
+        Err(TryLockError::Poisoned(_)) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Poisoned)
+        }
+      };
+
+      Ok(WriteResource(lock, PhantomData))
     };
-    let lock = match resource.try_write() {
-      Ok(it) => it,
-      Err(TryLockError::WouldBlock) => return Err(ResourceLookupError::Locked),
-      Err(TryLockError::Poisoned(_)) => {
-        return Err(ResourceLookupError::Poisoned)
-      }
-    };
-    Ok(WriteResource(lock, PhantomData))
+    result.map_err(|kind| ResourceLookupError { tid, kind })
   }
 
   pub fn insert<T: Resource>(&mut self, resource: T) -> Option<T> {
@@ -155,10 +171,15 @@ impl<'a, T: Resource> DerefMut for WriteResource<'a, T> {
   }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ResourceLookupError {
+  pub tid: TypeIdWrapper,
+  pub kind: ResourceLookupErrorKind,
+}
+
 /// Problems when trying to get a resource from a world.
 #[derive(Debug, Clone, Copy)]
-pub enum ResourceLookupError {
-  /// There isn't anything of that resource type
+pub enum ResourceLookupErrorKind {
   NotFound,
   /// Either there's already an immutable reference to that resource and you tried to get a mutable one,
   /// or there was already a mutable reference to that resource and you tried to get an immutable one.
@@ -171,10 +192,10 @@ pub enum ResourceLookupError {
 
 impl Display for ResourceLookupError {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    match self {
-            ResourceLookupError::NotFound => write!(f, "a resource of that type was not found"),
-            ResourceLookupError::Locked => write!(f, "the resource of that type was found, but it was borrowed in such a way it could not be reborrowed"),
-            ResourceLookupError::Poisoned => write!(f, "the resource of that type was found, but it was poisoned")
+    match self.kind {
+            ResourceLookupErrorKind::NotFound => write!(f, "a resource of type {} was not found", &self.tid.type_name),
+            ResourceLookupErrorKind::Locked => write!(f, "the resource of type {} was found, but it was borrowed in such a way it could not be reborrowed", &self.tid.type_name),
+            ResourceLookupErrorKind::Poisoned => write!(f, "the resource of type {} was found, but its lock was poisoned -- what on earth are you doing‽", &self.tid.type_name)
         }
   }
 }

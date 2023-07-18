@@ -113,7 +113,10 @@ fn loop_panic(perpetrator: Entity, comp_tid: TypeIdWrapper) -> ! {
 }
 
 pub mod prelude {
-  //! Handy module to glob-import and get everything in the crate.
+  //! Handy module to glob-import and get a bunch of stuff in the crate.
+  //! It omits some stuff that's more useful internally, as well as error enum variants
+  //! (because, tbh, I usually just unwrap everything.)
+
   pub use crate::{
     access::{
       AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
@@ -122,16 +125,11 @@ pub mod prelude {
     callback::CallbackWorldAccess,
     component::{Component, HandlerBuilder},
     entities::{Entity, EntityLiveness},
+    fabricator::EntityFabricator,
     messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite},
     query::Query,
-    resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
+    resource::{ReadResource, Resource, WriteResource},
     world::World,
-  };
-
-  #[cfg(feature = "serde")]
-  pub use crate::serde::{
-    EntityDeContext, EntitySerContext, ResourceDeContext, ResourceSerContext,
-    SerKey, WorldSerdeInstructions,
   };
 
   #[cfg(feature = "derive")]
