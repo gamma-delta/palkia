@@ -22,3 +22,25 @@ pub fn derive_message(
 
   proc_macro::TokenStream::from(expanded)
 }
+
+/// Automagically derive `Resource`.
+///
+/// This literally just pastes in `impl Resource for Foo {}`.
+#[proc_macro_derive(Resource)]
+pub fn derive_resource(
+  input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+  let input = parse_macro_input!(input as DeriveInput);
+  let struct_name = input.ident;
+
+  let (impl_generics, ty_generics, where_clause) =
+    input.generics.split_for_impl();
+
+  let expanded = quote! {
+    impl #impl_generics palkia::resource::Resource for #struct_name #ty_generics #where_clause {
+      // No - op
+    }
+  };
+
+  proc_macro::TokenStream::from(expanded)
+}

@@ -3,7 +3,7 @@ members = ["palkia_macros"]
 
 [package]
 name = "palkia"
-version = "0.11.1"
+version = "0.12.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -32,7 +32,7 @@ miette = "5.10.0"
 
 # Serdeez nuts
 serde = { version = "1.0.143", optional = true, features = ["derive"] }
-knurdy = { version = "0.1.2", optional = true }
+knurdy = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 aglet = "0.1.1"
