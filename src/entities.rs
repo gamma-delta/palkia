@@ -1,6 +1,6 @@
 //! Lightweight handles to lists of resources.
 
-use std::{collections::hash_map, iter, sync::RwLock};
+use std::{collections::hash_map, iter, sync::RwLock, fmt};
 
 use ahash::AHashMap;
 use generational_arena::Arena;
@@ -11,6 +11,12 @@ use generational_arena::Index;
 use crate::{prelude::Component, ToTypeIdWrapper, TypeIdWrapper};
 
 /// A handle to a list of [`Component`]s.
+///
+/// Often while debugging the whole long-form `Debug` impl is a bit long
+/// to print to the screen. 
+/// The `LowerHex` fmt impl prints it shorter as `index@generation`.
+/// (This uses decimal numbers. Yes this isn't what format specifiers
+/// are supposed to be for. I don't care.)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
@@ -35,6 +41,13 @@ impl Entity {
   pub fn recompose(index: usize, generation: u64) -> Self {
     Self(Index::from_raw_parts(index, generation))
   }
+}
+
+impl fmt::LowerHex for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      let (idx, gen) = self.decompose();
+      write!(f, "{}@{}", idx, gen)
+    }
 }
 
 /// Allocator and storage for entities.
