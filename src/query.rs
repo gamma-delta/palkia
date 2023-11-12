@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-  entities::EntityAssoc,
   prelude::{Component, Entity},
+  world::EntityAssoc,
   TypeIdWrapper,
 };
 

@@ -135,6 +135,10 @@ impl ResourceMap {
   {
     self.map.iter().map(|(tid, res)| (*tid, res))
   }
+
+  pub fn len(&self) -> usize {
+    self.map.len()
+  }
 }
 
 /// Opaque wrapper for an immutable reference to a resource.

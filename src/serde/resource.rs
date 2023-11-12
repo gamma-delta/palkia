@@ -72,21 +72,16 @@ where
 pub(super) struct ResourcesSerWrapper<
   'w,
   ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
+  W: WorldSerdeInstructions<ResId>,
 > {
   pub instrs: &'w W,
   pub world: &'w World,
 
-  phantom: PhantomData<*const (ResId, CmpId)>,
+  phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > ResourcesSerWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  ResourcesSerWrapper<'w, ResId, W>
 {
   pub(super) fn new(instrs: &'w W, world: &'w World) -> Self {
     Self {
@@ -97,12 +92,8 @@ impl<
   }
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Serialize for ResourcesSerWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
+  for ResourcesSerWrapper<'w, ResId, W>
 {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -179,19 +170,14 @@ impl<'a, 'de, M: MapAccess<'de>, Id: SerKey> ResourceDeContext<'a, 'de, M, Id> {
 pub(super) struct ResourcesDeWrapper<
   'w,
   ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
+  W: WorldSerdeInstructions<ResId>,
 > {
   instrs: &'w W,
-  phantom: PhantomData<*const (ResId, CmpId)>,
+  phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > ResourcesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  ResourcesDeWrapper<'w, ResId, W>
 {
   pub(super) fn new(instrs: &'w W) -> Self {
     Self {
@@ -201,13 +187,8 @@ impl<
   }
 }
 
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > DeserializeSeed<'de> for ResourcesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  DeserializeSeed<'de> for ResourcesDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {
@@ -222,13 +203,8 @@ where
 }
 
 // its its own visitor
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Visitor<'de> for ResourcesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
+  for ResourcesDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {

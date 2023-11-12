@@ -89,8 +89,8 @@ use serde::{
 };
 
 use crate::{
-  entities::{EntityAssoc, EntityStorage},
   prelude::{AccessEntityStats, Entity, World},
+  world::storage::{EntityAssoc, EntityStorage},
 };
 
 use self::{
@@ -118,10 +118,9 @@ impl World {
   ///
   /// See the `serde` tests for practical examples.
   pub fn serialize<
-    W: WorldSerdeInstructions<ResId, CmpId>,
+    W: WorldSerdeInstructions<ResId>,
     S: Serializer,
     ResId: SerKey,
-    CmpId: SerKey,
   >(
     &mut self,
     instrs: W,
@@ -153,10 +152,9 @@ impl World {
   pub fn deserialize<
     'a,
     'de,
-    W: WorldSerdeInstructions<ResId, CmpId>,
+    W: WorldSerdeInstructions<ResId>,
     D: Deserializer<'de>,
     ResId: SerKey,
-    CmpId: SerKey,
   >(
     &'a mut self,
     instrs: W,
@@ -166,7 +164,7 @@ impl World {
     'de: 'a,
   {
     let de_world = {
-      let seed = DeWorldDeserializer::new(&instrs, &self.known_component_types);
+      let seed = DeWorldDeserializer::new(&instrs);
       seed.deserialize(deserializer)?
     };
 
@@ -188,6 +186,7 @@ impl World {
     }
     self.entities = EntityStorage::new(allocator, assocs);
 
+    // all the entities are created at once, so call callbacks after
     for e in to_callback {
       self.run_creation_callbacks(e);
     }
@@ -199,14 +198,14 @@ impl World {
 /// Instructions for serializing and deserializing the various components and resources in the world.
 ///
 /// `ResId` is the key type for resources, and `CmpId` is the key type for components.
-pub trait WorldSerdeInstructions<ResId: SerKey, CmpId: SerKey> {
+pub trait WorldSerdeInstructions<ResId: SerKey> {
   /// Serialize the components on an entity.
   ///
   /// Although the internals are exposed, for almost all cases you should just be calling
   /// [`EntitySerContext::try_serialize`] for each component type you want to serialize.
   fn serialize_entity<S: Serializer>(
     &self,
-    ctx: EntitySerContext<'_, '_, CmpId, S>,
+    ctx: EntitySerContext<'_, '_, S>,
   ) -> Result<(), S::Error>;
 
   /// Return the number of serializable components on the given entity.
@@ -224,7 +223,7 @@ pub trait WorldSerdeInstructions<ResId: SerKey, CmpId: SerKey> {
   /// See the serde tests for how the implementation should look.
   fn deserialize_entity<'a, 'de, M: MapAccess<'de>>(
     &'a self,
-    ctx: &mut EntityDeContext<'_, 'de, M, CmpId>,
+    ctx: &mut EntityDeContext<'_, 'de, M>,
   ) -> Result<(), M::Error>
   where
     'de: 'a;
@@ -255,13 +254,16 @@ pub trait WorldSerdeInstructions<ResId: SerKey, CmpId: SerKey> {
     'de: 'a;
 }
 
-/// Types that can be used as an id when serializing components and resources.
+/// Types that can be used as an id when serializing resources.
 ///
 /// Although there are a lot of bounds, they should cover anything you care to use as an ID ...
 /// and there's a blanket impl to make it even easier.
 ///
 /// I would love to use [`TypeID`](std::any::TypeId) for this and have it happen automatically,
 /// but `TypeID`'s specific values aren't stable between rustc versions. So you have to provide it yourself.
+///
+/// TODO: as of recently, components are round-tripped with their friendly
+/// names. Resources should do something similar
 pub trait SerKey:
   Clone
   + Hash

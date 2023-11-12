@@ -1,10 +1,7 @@
 use ahash::AHashMap;
 use generational_arena::Arena;
 
-use std::{
-  collections::{BTreeMap, BTreeSet},
-  marker::PhantomData,
-};
+use std::{collections::BTreeMap, marker::PhantomData};
 
 use serde::{
   de::{self, DeserializeSeed, MapAccess, Visitor},
@@ -29,28 +26,23 @@ use super::{
 #[derive(Serialize)]
 #[serde(rename = "SerDeWorld")] // this type does not actually exist, aha
 #[serde(bound(serialize = ""))]
-pub(super) struct SerWorld<
-  'a,
-  ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
-> {
+pub(super) struct SerWorld<'a, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+{
   pub allocator: &'a Arena<()>,
   // Maps (real) entities to (fake) instructions for serializing them
-  pub entity_wrappers: AHashMap<Entity, EntitySerWrapper<'a, ResId, CmpId, W>>,
+  pub entity_wrappers: AHashMap<Entity, EntitySerWrapper<'a, ResId, W>>,
   // Fake resources
-  pub resource_wrappers: ResourcesSerWrapper<'a, ResId, CmpId, W>,
+  pub resource_wrappers: ResourcesSerWrapper<'a, ResId, W>,
 }
 
 /// Wrapper for deserializing a world.
 ///
 /// We can't auto-impl deserialize because we need seeds
-pub(super) struct DeWorld<CmpId: SerKey> {
+pub(super) struct DeWorld {
   pub allocator: Arena<()>,
   // Maps (real) entities to (fake) instructions for deserializing them
   pub entity_wrappers: AHashMap<Entity, EntityBuilderComponentTracker>,
   pub resource_wrappers: BTreeMap<TypeIdWrapper, Box<dyn Resource>>,
-  phantom: PhantomData<*const CmpId>,
 }
 
 #[derive(Deserialize)]
@@ -64,44 +56,29 @@ enum SerdeWorldField {
 pub(super) struct DeWorldDeserializer<
   'a,
   ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
+  W: WorldSerdeInstructions<ResId>,
 > {
   pub instrs: &'a W,
-  pub known_component_types: &'a BTreeSet<TypeIdWrapper>,
-  pub phantom: PhantomData<*const (ResId, CmpId)>,
+  pub phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'a,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > DeWorldDeserializer<'a, ResId, CmpId, W>
+impl<'a, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  DeWorldDeserializer<'a, ResId, W>
 {
-  pub fn new(
-    instrs: &'a W,
-    known_component_types: &'a BTreeSet<TypeIdWrapper>,
-  ) -> Self {
+  pub fn new(instrs: &'a W) -> Self {
     Self {
       instrs,
-      known_component_types,
       phantom: PhantomData,
     }
   }
 }
 
-impl<
-    'a,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > DeserializeSeed<'de> for DeWorldDeserializer<'a, ResId, CmpId, W>
+impl<'a, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  DeserializeSeed<'de> for DeWorldDeserializer<'a, ResId, W>
 where
   'de: 'a,
 {
-  type Value = DeWorld<CmpId>;
+  type Value = DeWorld;
 
   fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
   where
@@ -115,17 +92,12 @@ where
   }
 }
 
-impl<
-    'a,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Visitor<'de> for DeWorldDeserializer<'a, ResId, CmpId, W>
+impl<'a, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
+  for DeWorldDeserializer<'a, ResId, W>
 where
   'de: 'a,
 {
-  type Value = DeWorld<CmpId>;
+  type Value = DeWorld;
 
   fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
     formatter.write_str("a serialized world (map or seq)")
@@ -139,7 +111,7 @@ where
       .next_element()?
       .ok_or_else(|| de::Error::invalid_length(0, &self))?;
 
-    let seed = EntitiesDeWrapper::new(self.instrs, self.known_component_types);
+    let seed = EntitiesDeWrapper::new(self.instrs);
     let entity_wrappers = seq
       .next_element_seed(seed)?
       .ok_or_else(|| de::Error::invalid_length(1, &self))?;
@@ -153,8 +125,6 @@ where
       allocator,
       entity_wrappers,
       resource_wrappers,
-
-      phantom: PhantomData,
     })
   }
 
@@ -178,8 +148,7 @@ where
             return Err(de::Error::duplicate_field("entity_wrappers"));
           }
 
-          let seed =
-            EntitiesDeWrapper::new(self.instrs, self.known_component_types);
+          let seed = EntitiesDeWrapper::new(self.instrs);
           let wrapper = map.next_value_seed(seed)?;
           entity_wrappers = Some(wrapper)
         }
@@ -205,8 +174,6 @@ where
       allocator,
       entity_wrappers,
       resource_wrappers,
-
-      phantom: PhantomData,
     })
   }
 }

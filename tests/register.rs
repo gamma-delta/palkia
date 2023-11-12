@@ -1,7 +1,9 @@
 use palkia::prelude::*;
 
 #[test]
-#[should_panic(expected = "but that type was not registered")]
+#[should_panic(
+  expected = "tried to spawn an entity with the unregistered type"
+)]
 fn fail_to_register() {
   let mut world = World::new();
 

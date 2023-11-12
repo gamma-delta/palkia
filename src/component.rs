@@ -5,15 +5,20 @@ use std::{any, collections::BTreeMap, marker::PhantomData};
 use downcast::{downcast, Any};
 
 use crate::{
-  callback::{CallbackWorldAccess, OnCreateCallback, OnRemoveCallback},
+  callback::{
+    CallbackWorldAccess, Callbacks, OnCreateCallback, OnRemoveCallback,
+  },
   messages::{Message, MsgHandlerInner, MsgHandlerRead, MsgHandlerWrite},
   prelude::{Entity, ListenerWorldAccess},
+  vtablesathome::ComponentVtable,
   TypeIdWrapper,
 };
 
 /// Something attached to an [`Entity`] that gives it its behavior.
 ///
-/// Components all have a "friendly name". This is the name used to read it
+/// Components all have a "friendly name". This is the name used to read it from
+/// a blueprint, and used in ser/de as well. By default it is the last field in
+/// [`std::any::type_name`] (split on `::`).
 pub trait Component: Any {
   /// Register what message types this listens to and what it does with them.
   ///
@@ -31,7 +36,7 @@ pub struct HandlerBuilder<C: Component + ?Sized> {
   pub(crate) handlers: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
   pub(crate) create_cb: Option<OnCreateCallback>,
   pub(crate) remove_cb: Option<OnRemoveCallback>,
-  pub (crate) friendly_name: Option<&'static str>,
+  pub(crate) friendly_name: Option<&'static str>,
 
   phantom: PhantomData<C>,
 }
@@ -173,5 +178,42 @@ impl<C: Component> HandlerBuilder<C> {
     self
   }
 
-  /// 
+  /// Manually set the friendly name of this component to something other
+  /// than the default (a best-effort guess at the type name based on
+  /// `std::any::type_name`).
+  pub fn set_friendly_name(mut self, name: &'static str) -> Self {
+    if let Some(ono) = self.friendly_name.replace(name) {
+      panic!(
+        "tried to set the friendly name of {} to {:?} but was already set to {:?}",
+        std::any::type_name::<C>(),
+        name,
+        ono,
+      );
+    }
+    self
+  }
+
+  pub(crate) fn into_vtable(self) -> ComponentVtable {
+    let friendly_name = self.friendly_name.unwrap_or_else(|| {
+      std::any::type_name::<C>()
+        .split("::")
+        .last()
+        .expect("somehow had a type with no name")
+    });
+
+    let callbacks = match (self.create_cb, self.remove_cb) {
+      (None, None) => None,
+      (None, Some(remove)) => Some(Callbacks::Remove(remove)),
+      (Some(create), None) => Some(Callbacks::Create(create)),
+      (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
+    };
+
+    ComponentVtable {
+      tid: TypeIdWrapper::of::<C>(),
+
+      friendly_name,
+      msg_table: self.handlers,
+      callbacks,
+    }
+  }
 }

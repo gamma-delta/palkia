@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[test]
 fn entity_roundtrip() {
-  let mut world1 = World::new();
-  world1.register_component::<Counter>();
-  world1.register_component::<Duplicator>();
+  let mut world1 = registered_world();
 
   world1.spawn().with(Counter::default()).build();
   world1.spawn().with(Duplicator).build();
@@ -26,9 +24,7 @@ fn entity_roundtrip() {
 
   let bin = ser_world(&mut world1);
 
-  let mut world2 = World::new();
-  world2.register_component::<Counter>();
-  world2.register_component::<Duplicator>();
+  let mut world2 = registered_world();
 
   de_world(&mut world2, &bin);
 
@@ -62,38 +58,6 @@ fn entity_roundtrip() {
 }
 
 #[test]
-fn skipping() {
-  let mut world1 = World::new();
-  world1.register_component::<Counter>();
-  world1.register_component::<Duplicator>();
-  world1.register_component::<CmpNotSerialized>();
-
-  world1.spawn().with(Counter::default()).build();
-  world1.spawn().with(Duplicator).build();
-  let not_ser = world1.spawn().with(CmpNotSerialized).build();
-  let kinda_ser = world1
-    .spawn()
-    .with(Counter::default())
-    .with(CmpNotSerialized)
-    .build();
-
-  let bin = ser_world(&mut world1);
-
-  let mut world2 = World::new();
-  world2.register_component::<Counter>();
-  world2.register_component::<Duplicator>();
-  world2.register_component::<CmpNotSerialized>();
-
-  de_world(&mut world2, &bin);
-
-  // It serializes every entity ...
-  assert_eq!(world2.len(), 4);
-  // but not all the components
-  assert_eq!(world2.len_of(not_ser), 0);
-  assert_eq!(world2.len_of(kinda_ser), 1)
-}
-
-#[test]
 fn resource_roundtrip() {
   let mut world1 = World::new();
   world1.insert_resource(AResource {
@@ -116,9 +80,7 @@ fn resource_roundtrip() {
 
 #[test]
 fn roundtrip_all() {
-  let mut world1 = World::new();
-  world1.register_component::<Counter>();
-  world1.register_component::<Duplicator>();
+  let mut world1 = registered_world();
 
   world1.insert_resource(AResource {
     foo: 0xF00,
@@ -143,9 +105,7 @@ fn roundtrip_all() {
 
   let bin = ser_world(&mut world1);
 
-  let mut world2 = World::new();
-  world2.register_component::<Counter>();
-  world2.register_component::<Duplicator>();
+  let mut world2 = registered_world();
 
   de_world(&mut world2, &bin);
 
@@ -189,8 +149,7 @@ fn roundtrip_all() {
 
 #[test]
 fn callbacks() {
-  let mut world1 = World::new();
-  world1.register_component::<Duplicator>();
+  let mut world1 = registered_world();
   world1.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
 
   world1.spawn().with(Duplicator).build();
@@ -202,8 +161,7 @@ fn callbacks() {
 
   let bin = ser_world(&mut world1);
 
-  let mut world2 = World::new();
-  world2.register_component::<Duplicator>();
+  let mut world2 = registered_world();
   world2.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
 
   de_world(&mut world2, &bin);
@@ -242,21 +200,15 @@ enum ResourceKey {
   DupliCounter,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-enum ComponentKey {
-  Counter,
-  Duplicator,
-}
-
 struct SerdeInstrs;
 
-impl WorldSerdeInstructions<ResourceKey, ComponentKey> for SerdeInstrs {
+impl WorldSerdeInstructions<ResourceKey> for SerdeInstrs {
   fn serialize_entity<S: serde::Serializer>(
     &self,
-    mut ctx: EntitySerContext<'_, '_, ComponentKey, S>,
+    mut ctx: EntitySerContext<'_, '_, S>,
   ) -> Result<(), S::Error> {
-    ctx.try_serialize::<Counter>(ComponentKey::Counter)?;
-    ctx.try_serialize::<Duplicator>(ComponentKey::Duplicator)?;
+    ctx.try_serialize::<Counter>()?;
+    ctx.try_serialize::<Duplicator>()?;
 
     Ok(())
   }
@@ -271,14 +223,15 @@ impl WorldSerdeInstructions<ResourceKey, ComponentKey> for SerdeInstrs {
 
   fn deserialize_entity<'a, 'de, M: serde::de::MapAccess<'de>>(
     &'a self,
-    ctx: &mut EntityDeContext<'_, 'de, M, ComponentKey>,
+    ctx: &mut EntityDeContext<'_, 'de, M>,
   ) -> Result<(), M::Error>
   where
     'de: 'a,
   {
     match ctx.key() {
-      ComponentKey::Counter => ctx.accept::<Counter>(),
-      ComponentKey::Duplicator => ctx.accept::<Duplicator>(),
+      "Counter" => ctx.accept::<Counter>(),
+      "Duplicator" => ctx.accept::<Duplicator>(),
+      _ => panic!(),
     }
   }
 
@@ -362,15 +315,11 @@ impl Component for Duplicator {
   }
 }
 
-struct CmpNotSerialized;
-
-impl Component for CmpNotSerialized {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
-  where
-    Self: Sized,
-  {
-    builder
-  }
+fn registered_world() -> World {
+  let mut w = World::new();
+  w.register_component::<Counter>();
+  w.register_component::<Duplicator>();
+  w
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

@@ -66,7 +66,7 @@ use super::{SerKey, WorldSerdeInstructions};
 /// Helper struct for serializing entities.
 ///
 /// Although the internals are exposed, you should probably just be calling [`EntitySerContext::try_serialize`].
-pub struct EntitySerContext<'a, 'w, Id: SerKey, S: Serializer> {
+pub struct EntitySerContext<'a, 'w, S: Serializer> {
   /// The map serializer you are to serialize the entities into.
   /// This should have your Id keys mapped to component values.
   pub map: &'a mut S::SerializeMap,
@@ -76,10 +76,10 @@ pub struct EntitySerContext<'a, 'w, Id: SerKey, S: Serializer> {
   pub world: &'w World,
   /// Ids that have already been used. This is used by [`EntitySerContext::try_serialize`] to check your work
   /// and make sure you don't accidentally use the same key twice.
-  extant_ids: AHashMap<Id, TypeIdWrapper>,
+  extant_ids: AHashMap<&'static str, TypeIdWrapper>,
 }
 
-impl<'a, 'w, Id: SerKey, S: Serializer> EntitySerContext<'a, 'w, Id, S> {
+impl<'a, 'w, S: Serializer> EntitySerContext<'a, 'w, S> {
   fn new(
     world: &'w World,
     map: &'a mut S::SerializeMap,
@@ -99,19 +99,22 @@ impl<'a, 'w, Id: SerKey, S: Serializer> EntitySerContext<'a, 'w, Id, S> {
   /// You should call this with every type you wish to be serialized.
   pub fn try_serialize<C: Component + Serialize>(
     &mut self,
-    id: Id,
   ) -> Result<(), S::Error> {
     let tid = TypeIdWrapper::of::<C>();
-    if let Some(extant_tid) = self.extant_ids.insert(id.clone(), tid) {
+    let vt = self.world.component_vt(tid);
+    let friendly_name = vt.friendly_name;
+
+    if let Some(extant_tid) = self.extant_ids.insert(friendly_name, tid) {
       if tid != extant_tid {
         panic!(
-                    "a serialization key was used for two different component types, {} and {}",
-                    extant_tid.type_name, tid.type_name
-                );
+          "a serialization key was used for two different component types, {} and {}",
+          extant_tid.type_name, tid.type_name
+        );
       }
     }
     if let Some(comp) = self.world.query::<&C>(self.entity) {
-      self.map.serialize_entry(&id, comp.as_ref())?;
+      let vt = self.world.component_vt(tid);
+      self.map.serialize_entry(vt.friendly_name, comp.as_ref())?;
     }
 
     Ok(())
@@ -128,22 +131,17 @@ impl<'a, 'w, Id: SerKey, S: Serializer> EntitySerContext<'a, 'w, Id, S> {
 pub(super) struct EntitySerWrapper<
   'w,
   ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
+  W: WorldSerdeInstructions<ResId>,
 > {
   pub world: &'w World,
   pub instrs: &'w W,
   pub entity: Entity,
 
-  pub phantom: PhantomData<*const (ResId, CmpId)>,
+  pub phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > EntitySerWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  EntitySerWrapper<'w, ResId, W>
 {
   pub(super) fn new(world: &'w World, instrs: &'w W, entity: Entity) -> Self {
     Self {
@@ -155,12 +153,8 @@ impl<
   }
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Serialize for EntitySerWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
+  for EntitySerWrapper<'w, ResId, W>
 {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -168,11 +162,8 @@ impl<
   {
     let len = self.instrs.component_count(self.entity, self.world);
     let mut map = serializer.serialize_map(len)?;
-    let ctx = EntitySerContext::<'_, 'w, CmpId, S>::new(
-      self.world,
-      &mut map,
-      self.entity,
-    );
+    let ctx =
+      EntitySerContext::<'_, 'w, S>::new(self.world, &mut map, self.entity);
     self.instrs.serialize_entity(ctx)?;
     map.end()
   }
@@ -186,35 +177,32 @@ impl<
 // (EntitiesDeWrapper), which forwards to a wrapper that reads the EntityBuilderComponentTrackers (EntityDeWrapper)
 
 /// Helper struct for deserializing entities.
-pub struct EntityDeContext<'a, 'de, M: MapAccess<'de>, Id: SerKey> {
+pub struct EntityDeContext<'a, 'de, M: MapAccess<'de>> {
   map: M,
   tracker: &'a mut EntityBuilderComponentTracker,
-  known_types: &'a BTreeSet<TypeIdWrapper>,
-  key: Id,
+  key: String,
 
   accepted_entity: bool,
   phantom: PhantomData<&'de ()>,
 }
 
-impl<'a, 'de, M: MapAccess<'de>, Id: SerKey> EntityDeContext<'a, 'de, M, Id> {
+impl<'a, 'de, M: MapAccess<'de>> EntityDeContext<'a, 'de, M> {
   fn new(
     map: M,
     tracker: &'a mut EntityBuilderComponentTracker,
-    known_types: &'a BTreeSet<TypeIdWrapper>,
-    key: Id,
+    key: String,
   ) -> Self {
     Self {
       map,
       tracker,
-      known_types,
       key,
       accepted_entity: false,
       phantom: PhantomData,
     }
   }
 
-  pub fn key(&self) -> Id {
-    self.key.clone()
+  pub fn key(&self) -> &str {
+    &self.key
   }
 
   /// Signal that the key returned by [`EntityDeContext::key`] is associated with a component of this type.
@@ -229,7 +217,7 @@ impl<'a, 'de, M: MapAccess<'de>, Id: SerKey> EntityDeContext<'a, 'de, M, Id> {
     self.accepted_entity = true;
 
     let comp: C = self.map.next_value()?;
-    self.tracker.insert(comp, self.known_types);
+    self.tracker.insert(comp);
     Ok(())
   }
 }
@@ -238,40 +226,25 @@ impl<'a, 'de, M: MapAccess<'de>, Id: SerKey> EntityDeContext<'a, 'de, M, Id> {
 pub(super) struct EntitiesDeWrapper<
   'w,
   ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
+  W: WorldSerdeInstructions<ResId>,
 > {
   instrs: &'w W,
-  known_component_types: &'w BTreeSet<TypeIdWrapper>,
-  phantom: PhantomData<*const (ResId, CmpId)>,
+  phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > EntitiesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  EntitiesDeWrapper<'w, ResId, W>
 {
-  pub(super) fn new(
-    instrs: &'w W,
-    known_component_types: &'w BTreeSet<TypeIdWrapper>,
-  ) -> Self {
+  pub(super) fn new(instrs: &'w W) -> Self {
     Self {
       instrs,
-      known_component_types,
       phantom: PhantomData,
     }
   }
 }
 
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > DeserializeSeed<'de> for EntitiesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  DeserializeSeed<'de> for EntitiesDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {
@@ -286,13 +259,8 @@ where
 }
 
 /// It's its own visitor
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Visitor<'de> for EntitiesDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
+  for EntitiesDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {
@@ -310,8 +278,7 @@ where
 
     while let Some(entity) = map.next_key()? {
       let _: Entity = entity;
-      let seed =
-        ComponentDeWrapper::new(self.instrs, self.known_component_types);
+      let seed = ComponentDeWrapper::new(self.instrs);
       let tracker = map.next_value_seed(seed)?;
       out.insert(entity, tracker);
     }
@@ -321,43 +288,24 @@ where
 }
 
 /// Wrapper that reads component key-value pairs out of a deserializer.
-struct ComponentDeWrapper<
-  'w,
-  ResId: SerKey,
-  CmpId: SerKey,
-  W: WorldSerdeInstructions<ResId, CmpId>,
-> {
+struct ComponentDeWrapper<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> {
   instrs: &'w W,
-  known_component_types: &'w BTreeSet<TypeIdWrapper>,
-  phantom: PhantomData<*const (ResId, CmpId)>,
+  phantom: PhantomData<*const ResId>,
 }
 
-impl<
-    'w,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > ComponentDeWrapper<'w, ResId, CmpId, W>
+impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  ComponentDeWrapper<'w, ResId, W>
 {
-  fn new(
-    instrs: &'w W,
-    known_component_types: &'w BTreeSet<TypeIdWrapper>,
-  ) -> Self {
+  fn new(instrs: &'w W) -> Self {
     Self {
       instrs,
-      known_component_types,
       phantom: PhantomData,
     }
   }
 }
 
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > DeserializeSeed<'de> for ComponentDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
+  DeserializeSeed<'de> for ComponentDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {
@@ -372,13 +320,8 @@ where
 }
 
 // again it is its own visitor
-impl<
-    'w,
-    'de,
-    ResId: SerKey,
-    CmpId: SerKey,
-    W: WorldSerdeInstructions<ResId, CmpId>,
-  > Visitor<'de> for ComponentDeWrapper<'w, ResId, CmpId, W>
+impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
+  for ComponentDeWrapper<'w, ResId, W>
 where
   'de: 'w,
 {
@@ -394,13 +337,10 @@ where
   {
     let mut tracker = EntityBuilderComponentTracker::default();
     while let Some(key) = map.next_key()? {
-      let _: CmpId = key;
-      let mut ctx = EntityDeContext::new(
-        map,
-        &mut tracker,
-        &self.known_component_types,
-        key,
-      );
+      // force type
+      let _: String = key;
+
+      let mut ctx = EntityDeContext::new(map, &mut tracker, key);
       self.instrs.deserialize_entity(&mut ctx)?;
 
       if !ctx.accepted_entity {

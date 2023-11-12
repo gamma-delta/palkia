@@ -1,40 +1,41 @@
 //! The place all the entities, resources, and components live, at the heart of your project.
 
-use std::collections::{BTreeMap, BTreeSet};
+pub(crate) mod storage;
+// public for the benefit of `Query`
+#[doc(hidden)]
+pub use storage::EntityAssoc;
+
+use std::collections::BTreeMap;
 
 use crossbeam::channel;
 
 use crate::{
   access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources},
   builder::EntityBuilder,
-  callback::{
-    CallbackWorldAccess, Callbacks, OnCreateCallback, OnRemoveCallback,
-  },
+  callback::CallbackWorldAccess,
   component::{Component, HandlerBuilder},
-  entities::{Entity, EntityAssoc, EntityIter, EntityLiveness, EntityStorage},
+  entities::{Entity, EntityIter, EntityLiveness},
   loop_panic,
   messages::{ListenerWorldAccess, Message, MsgHandlerInner},
   prelude::Query,
   resource::{
     ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource,
   },
+  vtablesathome::ComponentVtable,
   ToTypeIdWrapper, TypeIdWrapper,
 };
+
+use self::storage::EntityStorage;
 
 pub struct World {
   /// Each entity maps type IDs to their components
   pub(crate) entities: EntityStorage,
-  /// Maps event types to, maps component types to the EventHandler.
-  msg_table: BTreeMap<TypeIdWrapper, BTreeMap<TypeIdWrapper, MsgHandlerInner>>,
-  pub(crate) known_component_types: BTreeSet<TypeIdWrapper>,
+  pub(crate) components: BTreeMap<TypeIdWrapper, ComponentVtable>,
 
   pub(crate) resources: ResourceMap,
 
   pub(crate) lazy_sender: channel::Sender<LazyUpdate>,
   lazy_channel: channel::Receiver<LazyUpdate>,
-
-  /// Maps component types to their callbacks
-  callbacks: BTreeMap<TypeIdWrapper, Callbacks>,
 }
 
 impl World {
@@ -43,12 +44,10 @@ impl World {
 
     Self {
       entities: EntityStorage::default(),
-      msg_table: BTreeMap::new(),
+      components: BTreeMap::new(),
       resources: ResourceMap::new(),
-      known_component_types: BTreeSet::new(),
       lazy_sender: tx,
       lazy_channel: rx,
-      callbacks: BTreeMap::new(),
     }
   }
 
@@ -56,66 +55,14 @@ impl World {
   ///
   /// Panics if that component type has already been registered.
   pub fn register_component<C: Component>(&mut self) {
-    if !self.known_component_types.insert(TypeIdWrapper::of::<C>()) {
-      panic!(
-        "already registered component type {:?}",
-        TypeIdWrapper::of::<C>().type_name
-      );
-    }
-
-    let builder = HandlerBuilder::<C>::new();
-    let builder = C::register_handlers(builder);
-    for (ev_type, handler) in builder.handlers {
-      self
-        .msg_table
-        .entry(ev_type)
-        .or_default()
-        .insert(TypeIdWrapper::of::<C>(), handler);
-    }
-
-    let cbs = mux_callbacks(builder.create_cb, builder.remove_cb);
-    if let Some(cbs) = cbs {
-      self.callbacks.insert(TypeIdWrapper::of::<C>(), cbs);
-    }
-  }
-
-  /// Extend a component type by adding more message handlers to it. (Perhaps the component was defined in
-  /// another crate.)
-  ///
-  /// The closure will receive a [`HandlerBuilder`]; use it as you might in the original closure implementation.
-  /// If the component previously defined a handler for a message, the one added here will clobber the old one.
-  /// Duplicate callbacks are currently not implemented and will panic.
-  ///
-  /// Panics if that component type has not been registered yet.
-  pub fn extend_component<C: Component>(
-    &mut self,
-    extension: impl FnOnce(HandlerBuilder<C>) -> HandlerBuilder<C>,
-  ) {
     let tid = TypeIdWrapper::of::<C>();
-    if !self.known_component_types.contains(&tid) {
-      panic!(
-        "tried to extend unregistered component type {:?}",
-        tid.type_name
-      );
+    if self.components.contains_key(&tid) {
+      panic!("already registered component type {:?}", tid.type_name);
     }
 
-    let builder = HandlerBuilder::<C>::new();
-    let builder = extension(builder);
-
-    if builder.create_cb.is_some() || builder.remove_cb.is_some() {
-      panic!(
-        "tried to extend component type {:?} by adding create/remove callbacks",
-        tid.type_name
-      );
-    }
-
-    for (ev_type, handler) in builder.handlers {
-      self
-        .msg_table
-        .entry(ev_type)
-        .or_default()
-        .insert(TypeIdWrapper::of::<C>(), handler);
-    }
+    let blank_builder = HandlerBuilder::<C>::new();
+    let builder = C::register_handlers(blank_builder);
+    self.components.insert(tid, builder.into_vtable());
   }
 
   /// Set up a builder to spawn an entity with a whole mess of components.
@@ -124,18 +71,17 @@ impl World {
     EntityBuilder::new_immediate(self, to_create)
   }
 
-  /// Spawn a new empty entity.
-  pub fn spawn_empty(&mut self) -> Entity {
-    // no need to run callbacks cause there's nothing on it to call back
-    self.entities.spawn(EntityAssoc::empty())
+  /// As a helper method (mostly for tests) spawn an entity with just
+  /// 1 component.
+  pub fn spawn_1<C: Component>(&mut self, comp: C) -> Entity {
+    self.spawn().with(comp).build()
   }
 
-  /// As a convenience method, spawn an entity with a single component.
-  pub fn spawn_1<C: Component>(&mut self, component: C) -> Entity {
-    let assoc = EntityAssoc::new([Box::new(component) as _]);
-    let e = self.entities.spawn(assoc);
-    self.run_creation_callbacks(e);
-    e
+  /// As a helper method (mostly for tests) spawn an entity with 0 components.
+  ///
+  /// It will literally do nothing.
+  pub fn spawn_empty(&mut self) -> Entity {
+    self.spawn().build()
   }
 
   /// Set up a builder to spawn an entity once `finalize` has been called.
@@ -209,10 +155,44 @@ impl World {
     self.entities.iter()
   }
 
+  /// Returns if the given component type has been registered.
+  pub fn knows_component<C: Component>(&self) -> bool {
+    self.knows_component_tid(TypeIdWrapper::of::<C>())
+  }
+
+  #[doc(hidden)]
+  pub fn knows_component_tid(&self, tid: TypeIdWrapper) -> bool {
+    self.components.contains_key(&tid)
+  }
+
+  /// Finish the spawning of an entity that's been lazily created but not
+  /// instantiated fully.
+  ///
+  /// Panics if the invariant is not upheld.
+  pub(crate) fn finish_spawn(&mut self, target: Entity, assoc: EntityAssoc) {
+    #[cfg(debug_assertions)]
+    {
+      for (cmp_tid, _) in assoc.iter() {
+        if !self.knows_component_tid(cmp_tid) {
+          panic!(
+            "tried to spawn an entity with the unregistered type {}",
+            cmp_tid.type_name
+          );
+        }
+      }
+    }
+
+    self.entities.finish_spawn(target, assoc);
+    self.run_creation_callbacks(target);
+  }
+
   pub(crate) fn run_creation_callbacks(&self, e: Entity) {
     let access = CallbackWorldAccess::new(self);
     for (tid, comp) in self.entities.get(e).components() {
-      if let Some(cb) = self.callbacks.get(tid).and_then(Callbacks::get_create)
+      if let Some(cb) = self
+        .components
+        .get(tid)
+        .and_then(|vt| vt.callbacks.as_ref()?.get_create())
       {
         // i am *pretty* sure this will never be locked?
         let comp = comp.try_read().unwrap();
@@ -220,10 +200,13 @@ impl World {
       }
     }
   }
-  pub(crate) fn run_removal_callback(&self, e: Entity, comps: EntityAssoc) {
+  fn run_removal_callback(&self, e: Entity, comps: EntityAssoc) {
     let access = CallbackWorldAccess::new(self);
     for (tid, comp) in comps.into_iter() {
-      if let Some(cb) = self.callbacks.get(&tid).and_then(Callbacks::get_remove)
+      if let Some(cb) = self
+        .components
+        .get(&tid)
+        .and_then(|vt| vt.callbacks.as_ref()?.get_remove())
       {
         let comp = comp.into_inner().unwrap();
         cb(comp, e, &access);
@@ -231,21 +214,17 @@ impl World {
     }
   }
 
-  #[doc(hidden)]
-  pub fn dump(&self) {
-    println!("Callbacks:");
-    for (tid, cb) in self.callbacks.iter() {
-      println!(
-        " {}: {}",
-        tid.type_name,
-        match cb {
-          Callbacks::Create(..) => "create",
-          Callbacks::Remove(..) => "remove",
-          Callbacks::Both(..) => "create/remove",
-        }
-      );
-    }
+  pub(crate) fn component_vt(&self, tid: TypeIdWrapper) -> &ComponentVtable {
+    self.components.get(&tid).unwrap_or_else(|| {
+      panic!(
+        "tried to access the unregistered component type {}",
+        tid.type_name
+      )
+    })
   }
+
+  #[doc(hidden)]
+  pub fn dump(&self) {}
 }
 
 impl AccessDispatcher for World {
@@ -338,25 +317,22 @@ pub(crate) fn dispatch_even_innerer(
   target: Entity,
   mut msg: Box<dyn Message>,
 ) -> Box<dyn Message> {
-  let event_handlers =
-    match access.world.msg_table.get(&(*msg).type_id_wrapper()) {
-      Some(it) => it,
-      None => {
-        // i've never met this event type in my life
-        return msg;
-      }
-    };
+  let msg_tid = (*msg).type_id_wrapper();
 
   let components = access.world.entities.get(target);
-  for (tid, comp) in components.iter() {
-    if let Some(handler) = event_handlers.get(&tid) {
-      let lock = comp.try_read().unwrap_or_else(|_| loop_panic(target, tid));
+  for (comp_tid, comp) in components.iter() {
+    let vt = access.world.component_vt(comp_tid);
+    if let Some(handler) = vt.msg_table.get(&msg_tid) {
+      let lock = comp
+        .try_read()
+        .unwrap_or_else(|_| loop_panic(target, comp_tid));
       let msg2 = match handler {
         MsgHandlerInner::Read(handler) => handler(&**lock, msg, target, access),
         MsgHandlerInner::Write(handler) => {
           drop(lock);
-          let mut lock =
-            comp.try_write().unwrap_or_else(|_| loop_panic(target, tid));
+          let mut lock = comp
+            .try_write()
+            .unwrap_or_else(|_| loop_panic(target, comp_tid));
           handler(&mut **lock, msg, target, access)
         }
       };
@@ -372,25 +348,4 @@ pub(crate) fn dispatch_even_innerer(
   }
 
   msg
-}
-
-fn mux_callbacks(
-  create: Option<OnCreateCallback>,
-  remove: Option<OnRemoveCallback>,
-) -> Option<Callbacks> {
-  match (create, remove) {
-    (None, None) => None,
-    (None, Some(remove)) => Some(Callbacks::Remove(remove)),
-    (Some(create), None) => Some(Callbacks::Create(create)),
-    (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
-  }
-}
-
-/// Information stored about each component.
-pub(crate) struct ComponentVtable {
-  pub tid: TypeIdWrapper,
-  /// Used for ser/de, both from kdl and to disc
-  pub friendly_name: &'static str,
-  /// Maps event types to msg handlers
-  pub msg_table: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
 }

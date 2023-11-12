@@ -8,9 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-  entities::EntityAssoc,
   prelude::{Component, Entity, ListenerWorldAccess, World},
-  world::LazyUpdate,
+  world::{EntityAssoc, LazyUpdate},
   ToTypeIdWrapper, TypeIdWrapper,
 };
 
@@ -70,9 +69,7 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
       EntityBuilderAccess::Lazy(lazy) => lazy.world,
       EntityBuilderAccess::LazyWorld(ref world) => world,
     };
-    self
-      .tracker
-      .insert_raw(component, &world.known_component_types)
+    self.tracker.insert_raw(component)
   }
 
   /// Insert the given component into the tentative entity.
@@ -114,9 +111,7 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     match self.access {
       EntityBuilderAccess::Immediate(ref mut world) => {
         world
-          .entities
           .finish_spawn(self.entity, EntityAssoc::new(self.tracker.components));
-        world.run_creation_callbacks(self.entity);
       }
       EntityBuilderAccess::Lazy(lazy) => {
         lazy.queue_update(LazyUpdate::FinishEntity(
@@ -204,31 +199,18 @@ impl EntityBuilderComponentTracker {
     Self::default()
   }
 
-  pub(crate) fn insert<C: Component>(
-    &mut self,
-    component: C,
-    comp_types: &BTreeSet<TypeIdWrapper>,
-  ) -> Option<C> {
-    self
-      .insert_raw(Box::new(component), comp_types)
-      .map(|comp| {
-        // SAFETY: type guards
-        unsafe { *comp.downcast().unwrap_unchecked() }
-      })
+  pub(crate) fn insert<C: Component>(&mut self, component: C) -> Option<C> {
+    self.insert_raw(Box::new(component)).map(|comp| {
+      // SAFETY: type guards
+      unsafe { *comp.downcast().unwrap_unchecked() }
+    })
   }
 
   pub(crate) fn insert_raw(
     &mut self,
     component: Box<dyn Component>,
-    comp_types: &BTreeSet<TypeIdWrapper>,
   ) -> Option<Box<dyn Component>> {
     let tid = (*component).type_id_wrapper();
-    if !comp_types.contains(&tid) {
-      // Technically, no UB or anything happens if this doesn't panic, but it *is* an easy mistake to make
-      // and your events won't fire.
-      panic!("tried to add a component of type {} to an entity, but that type was not registered", tid.type_name);
-    }
-
     if let Some(clobberee) = self.component_idxs.get(&tid) {
       let old = std::mem::replace(&mut self.components[*clobberee], component);
       Some(old)
