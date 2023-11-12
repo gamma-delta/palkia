@@ -22,7 +22,7 @@ fn compose() {
 
 struct IdHaver(u32);
 impl Component for IdHaver {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

@@ -13,7 +13,7 @@ fn fail_to_register() {
 struct FooBar;
 
 impl Component for FooBar {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

@@ -139,7 +139,7 @@ impl Rabbit {
 }
 
 impl Component for Rabbit {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

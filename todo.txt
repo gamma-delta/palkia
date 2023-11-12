@@ -1,0 +1,3 @@
+- Integrate components with TypeTag because on god when are you ever *not* ser/deing stuff
+https://github.com/dtolnay/typetag
+- Use these names as the friendly name instead

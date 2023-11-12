@@ -125,7 +125,7 @@ pub mod prelude {
     },
     builder::EntityBuilder,
     callback::CallbackWorldAccess,
-    component::{Component, HandlerBuilder},
+    component::{Component, ComponentRegisterer},
     entities::{Entity, EntityLiveness},
     fabricator::EntityFabricator,
     messages::{ListenerWorldAccess, Message, MsgHandlerRead, MsgHandlerWrite},

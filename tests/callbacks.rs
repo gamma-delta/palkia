@@ -89,7 +89,7 @@ impl Rabbit {
 }
 
 impl Component for Rabbit {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -112,7 +112,7 @@ impl Component for Rabbit {
 // struct to make sure it works with other components in there
 struct NotRabbit;
 impl Component for NotRabbit {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

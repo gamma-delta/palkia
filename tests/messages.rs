@@ -39,7 +39,7 @@ impl YakShaver {
 }
 
 impl Component for YakShaver {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

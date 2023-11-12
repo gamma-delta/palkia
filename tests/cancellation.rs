@@ -2,7 +2,7 @@ use palkia::prelude::*;
 
 struct Twitter;
 impl Component for Twitter {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -15,7 +15,7 @@ impl Component for Twitter {
 
 struct Panicker;
 impl Component for Panicker {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

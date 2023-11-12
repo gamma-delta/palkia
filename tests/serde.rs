@@ -274,7 +274,7 @@ struct Counter {
 }
 
 impl Component for Counter {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -289,7 +289,7 @@ impl Component for Counter {
 struct Duplicator;
 
 impl Component for Duplicator {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

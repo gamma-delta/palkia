@@ -36,6 +36,8 @@ knurdy = { version = "0.2.0", optional = true }
 
 # Vtables at home
 linkme = "0.3"
+typetag = "0.2.13"
+inventory = "0.3.13"
 
 [dev-dependencies]
 aglet = "0.1.1"

@@ -13,7 +13,7 @@ use crate::{
   access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources},
   builder::EntityBuilder,
   callback::CallbackWorldAccess,
-  component::{Component, HandlerBuilder},
+  component::{Component, ComponentRegisterer},
   entities::{Entity, EntityIter, EntityLiveness},
   loop_panic,
   messages::{ListenerWorldAccess, Message, MsgHandlerInner},
@@ -60,8 +60,8 @@ impl World {
       panic!("already registered component type {:?}", tid.type_name);
     }
 
-    let blank_builder = HandlerBuilder::<C>::new();
-    let builder = C::register_handlers(blank_builder);
+    let blank_builder = ComponentRegisterer::<C>::new();
+    let builder = C::register(blank_builder);
     self.components.insert(tid, builder.into_vtable());
   }
 

@@ -101,7 +101,7 @@ fn double_query_ww() {
 struct Foo;
 
 impl Component for Foo {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -113,7 +113,7 @@ impl Component for Foo {
 struct Bar;
 
 impl Component for Bar {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -125,7 +125,7 @@ impl Component for Bar {
 struct Baz;
 
 impl Component for Baz {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

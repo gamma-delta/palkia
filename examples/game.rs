@@ -111,7 +111,7 @@ impl Positioned {
 }
 
 impl Component for Positioned {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -140,7 +140,7 @@ impl Renderable {
 }
 
 impl Component for Renderable {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -153,7 +153,7 @@ impl Component for Renderable {
 struct AiRandomWanderer;
 
 impl Component for AiRandomWanderer {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {
@@ -170,7 +170,7 @@ impl Component for AiRandomWanderer {
 
 struct AiFollower(Entity);
 impl Component for AiFollower {
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized,
   {

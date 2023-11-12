@@ -23,15 +23,15 @@ pub trait Component: Any {
   /// Register what message types this listens to and what it does with them.
   ///
   /// See [`HandlerBuilder`] for more information.
-  fn register_handlers(builder: HandlerBuilder<Self>) -> HandlerBuilder<Self>
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
     Self: Sized;
 }
 downcast!(dyn Component);
 
-/// Builder that registers listeners and callbacks to components.
-#[must_use = "does nothing until .build() is called"]
-pub struct HandlerBuilder<C: Component + ?Sized> {
+/// Builder that registers listeners and callbacks and stuff to components.
+#[must_use]
+pub struct ComponentRegisterer<C: Component + ?Sized> {
   /// Maps event types to their handlers.
   pub(crate) handlers: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
   pub(crate) create_cb: Option<OnCreateCallback>,
@@ -41,7 +41,10 @@ pub struct HandlerBuilder<C: Component + ?Sized> {
   phantom: PhantomData<C>,
 }
 
-impl<C: Component> HandlerBuilder<C> {
+#[deprecated = "the name of this type was changed; this type alias for legacy code only"]
+pub type HandlerBuilder<C> = ComponentRegisterer<C>;
+
+impl<C: Component> ComponentRegisterer<C> {
   pub(crate) fn new() -> Self {
     Self {
       handlers: BTreeMap::new(),
