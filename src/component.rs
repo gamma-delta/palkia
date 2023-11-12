@@ -12,6 +12,8 @@ use crate::{
 };
 
 /// Something attached to an [`Entity`] that gives it its behavior.
+///
+/// Components all have a "friendly name". This is the name used to read it
 pub trait Component: Any {
   /// Register what message types this listens to and what it does with them.
   ///
@@ -29,6 +31,7 @@ pub struct HandlerBuilder<C: Component + ?Sized> {
   pub(crate) handlers: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
   pub(crate) create_cb: Option<OnCreateCallback>,
   pub(crate) remove_cb: Option<OnRemoveCallback>,
+  pub (crate) friendly_name: Option<&'static str>,
 
   phantom: PhantomData<C>,
 }
@@ -39,6 +42,7 @@ impl<C: Component> HandlerBuilder<C> {
       handlers: BTreeMap::new(),
       create_cb: None,
       remove_cb: None,
+      friendly_name: None,
       phantom: PhantomData,
     }
   }
@@ -168,4 +172,6 @@ impl<C: Component> HandlerBuilder<C> {
     self.remove_cb = Some(clo);
     self
   }
+
+  /// 
 }

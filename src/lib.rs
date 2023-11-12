@@ -12,6 +12,8 @@ pub mod query;
 pub mod resource;
 pub mod world;
 
+mod vtablesathome;
+
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;

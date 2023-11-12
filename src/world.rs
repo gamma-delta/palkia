@@ -385,3 +385,12 @@ fn mux_callbacks(
     (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
   }
 }
+
+/// Information stored about each component.
+pub(crate) struct ComponentVtable {
+  pub tid: TypeIdWrapper,
+  /// Used for ser/de, both from kdl and to disc
+  pub friendly_name: &'static str,
+  /// Maps event types to msg handlers
+  pub msg_table: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
+}
