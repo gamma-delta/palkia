@@ -1,111 +1,48 @@
-use std::{collections::BTreeMap, marker::PhantomData};
-
-use ahash::AHashMap;
 use serde::{
-  de::{DeserializeOwned, DeserializeSeed, MapAccess, Visitor},
-  ser::SerializeMap,
-  Serialize, Serializer,
+  de::{MapAccess, Visitor},
+  ser::{SerializeMap, SerializeSeq},
+  Deserialize, Serialize, Serializer,
 };
 
-use crate::{prelude::World, resource::Resource, TypeIdWrapper};
+use crate::{
+  prelude::World, resource::Resource, vtablesathome::ResourceVtables,
+  world::storage::ResourceMap, ToTypeIdWrapper,
+};
 
-use super::{SerKey, WorldSerdeInstructions};
+use super::{ApplyDeserFn, ErasedSerWrapper};
 
 // =====================
 // === SERIALIZATION ===
 // =====================
 
-/// Helper struct for serializing resources.
-///
-/// Although the internals are exposed, you should probably just be calling [`ResourceSerContext::try_serialize`].
-pub struct ResourceSerContext<'a, 'w, Id: SerKey, S: Serializer>
-where
-  'w: 'a,
-{
-  /// The map serializer you are to serialize the resources into.
-  /// This should have your Id keys mapped to resource values.
-  pub map: &'a mut S::SerializeMap,
-  /// The resource being serialized.
-  pub resource: &'w dyn Resource,
-  /// Ids that have already been used. This is used by [`ResourceSerContext::try_serialize`] to check your work
-  /// and make sure you don't accidentally use the same key twice.
-  extant_ids: AHashMap<Id, TypeIdWrapper>,
-}
-
-impl<'a, 'w, Id: SerKey, S: Serializer> ResourceSerContext<'a, 'w, Id, S>
-where
-  'w: 'a,
-{
-  fn new(map: &'a mut S::SerializeMap, resource: &'w dyn Resource) -> Self {
-    Self {
-      map,
-      resource,
-      extant_ids: AHashMap::new(),
-    }
-  }
-
-  /// Check if `self.resource` is of the given type, and if it is, serialize it with the given key.
-  pub fn try_serialize<R: Resource + Serialize>(
-    &mut self,
-    id: Id,
-  ) -> Result<(), S::Error> {
-    let tid = TypeIdWrapper::of::<R>();
-    if let Some(extant_tid) = self.extant_ids.insert(id.clone(), tid) {
-      if tid != extant_tid {
-        panic!(
-                    "a serialization key was used for two different resource types, {} and {}",
-                    extant_tid.type_name, tid.type_name
-                );
-      }
-    }
-    if let Ok(res) = self.resource.downcast_ref::<R>() {
-      self.map.serialize_entry(&id, res)?;
-    }
-
-    Ok(())
-  }
-}
-
 /// Wrapper that turns instructions for serializing various resources into something serializable.
 ///
 /// We send this to Serde and pretend it's the whole map.
-pub(super) struct ResourcesSerWrapper<
-  'w,
-  ResId: SerKey,
-  W: WorldSerdeInstructions<ResId>,
-> {
-  pub instrs: &'w W,
+pub(super) struct ResourcesSerWrapper<'w> {
   pub world: &'w World,
-
-  phantom: PhantomData<*const ResId>,
 }
 
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  ResourcesSerWrapper<'w, ResId, W>
-{
-  pub(super) fn new(instrs: &'w W, world: &'w World) -> Self {
-    Self {
-      instrs,
-      world,
-      phantom: PhantomData,
-    }
+impl<'w> ResourcesSerWrapper<'w> {
+  pub(super) fn new(world: &'w World) -> Self {
+    Self { world }
   }
 }
 
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
-  for ResourcesSerWrapper<'w, ResId, W>
-{
+impl<'w> Serialize for ResourcesSerWrapper<'w> {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
     S: Serializer,
   {
-    let len = self.instrs.resource_count(self.world);
-    let mut map = serializer.serialize_map(len)?;
+    let len = self.world.resources.len();
 
-    for (_, res) in self.world.resources.iter() {
-      let lock = res.try_read().unwrap();
-      let ctx = ResourceSerContext::<'_, '_, ResId, S>::new(&mut map, &**lock);
-      self.instrs.serialize_resource(ctx)?;
+    let mut map = serializer.serialize_map(Some(len))?;
+
+    for (tid, res) in self.world.resources.iter() {
+      let vtable = ResourceVtables::by_tid(tid);
+      let lock = res.read().unwrap();
+
+      map.serialize_key(vtable.friendly_name)?;
+      map.serialize_value(&ErasedSerWrapper::new(&**lock))?;
     }
     map.end()
   }
@@ -115,122 +52,44 @@ impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
 // === DESERIALIZATION ===
 // =======================
 
-/// Helper struct for deserializing resources.
-pub struct ResourceDeContext<'a, 'de, M: MapAccess<'de>, Id: SerKey> {
-  map: M,
-  key: Id,
-  resources: &'a mut BTreeMap<TypeIdWrapper, Box<dyn Resource>>,
-
-  accepted_resource: bool,
-  phantom: PhantomData<&'de ()>,
+pub(super) struct ResourcesDeWrapper {
+  pub resources: ResourceMap,
 }
 
-impl<'a, 'de, M: MapAccess<'de>, Id: SerKey> ResourceDeContext<'a, 'de, M, Id> {
-  fn new(
-    map: M,
-    key: Id,
-    resources: &'a mut BTreeMap<TypeIdWrapper, Box<dyn Resource>>,
-  ) -> Self {
-    Self {
-      map,
-      key,
-      resources,
-      accepted_resource: false,
-      phantom: PhantomData,
-    }
-  }
-
-  pub fn key(&self) -> Id {
-    self.key.clone()
-  }
-
-  pub fn accept<R: Resource + DeserializeOwned>(
-    &mut self,
-  ) -> Result<(), M::Error> {
-    if self.accepted_resource {
-      panic!("tried to accept a resource twice in a deserialize_resource impl");
-    }
-    self.accepted_resource = true;
-
-    let tid = TypeIdWrapper::of::<R>();
-    let res: R = self.map.next_value()?;
-    let prev = self.resources.insert(tid, Box::new(res));
-    if prev.is_some() {
-      panic!(
-        "found the same key twice when deserializing (for type {})",
-        tid.type_name
-      );
-    }
-
-    Ok(())
-  }
-}
-
-/// Wrapper that reads resources out of a map.
-pub(super) struct ResourcesDeWrapper<
-  'w,
-  ResId: SerKey,
-  W: WorldSerdeInstructions<ResId>,
-> {
-  instrs: &'w W,
-  phantom: PhantomData<*const ResId>,
-}
-
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  ResourcesDeWrapper<'w, ResId, W>
-{
-  pub(super) fn new(instrs: &'w W) -> Self {
-    Self {
-      instrs,
-      phantom: PhantomData,
-    }
-  }
-}
-
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  DeserializeSeed<'de> for ResourcesDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
-  type Value = BTreeMap<TypeIdWrapper, Box<dyn Resource>>;
-
-  fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+impl<'de> Deserialize<'de> for ResourcesDeWrapper {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where
     D: serde::Deserializer<'de>,
   {
-    deserializer.deserialize_map(self)
+    let resources = deserializer.deserialize_map(ResourcesDeVisitor)?;
+    Ok(ResourcesDeWrapper { resources })
   }
 }
 
-// its its own visitor
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
-  for ResourcesDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
-  type Value = BTreeMap<TypeIdWrapper, Box<dyn Resource>>;
+struct ResourcesDeVisitor;
+
+impl<'de> Visitor<'de> for ResourcesDeVisitor {
+  type Value = ResourceMap;
 
   fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-    formatter.write_str("a map of resource IDs to resource data")
+    write!(formatter, "a map of friendly names to resources")
   }
 
   fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
   where
     A: MapAccess<'de>,
   {
-    let mut out = BTreeMap::new();
+    let mut out = ResourceMap::new();
     while let Some(key) = map.next_key()? {
-      let _: ResId = key;
-      let mut ctx = ResourceDeContext::new(map, key, &mut out);
-      self.instrs.deserialize_resource(&mut ctx)?;
-
-      if !ctx.accepted_resource {
-        panic!("did not accept any resource in a deserialize_resource impl");
-      }
-
-      // recover map
-      map = ctx.map;
+      // force type
+      let _: String = key;
+      let vtable = ResourceVtables::by_friendly_name(&key);
+      let res = map.next_value_seed(ApplyDeserFn {
+        deser: vtable.deser,
+      })?;
+      out.insert_raw(res);
     }
+
     Ok(out)
   }
 }

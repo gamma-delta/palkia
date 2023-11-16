@@ -1,13 +1,12 @@
 //! Check that callbacks work.
 
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn create() {
   let mut world = World::new();
 
-  world.register_component::<Rabbit>();
-  world.register_component::<NotRabbit>();
   world.insert_resource(PopulationTracker(0));
 
   world.spawn().with(Rabbit).build();
@@ -34,8 +33,6 @@ fn create() {
 fn create_remove() {
   let mut world = World::new();
 
-  world.register_component::<Rabbit>();
-  world.register_component::<NotRabbit>();
   world.insert_resource(PopulationTracker(0));
 
   world.spawn().with(Rabbit).build();
@@ -58,6 +55,8 @@ fn create_remove() {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct Rabbit;
 
 impl Rabbit {
@@ -110,7 +109,10 @@ impl Component for Rabbit {
 }
 
 // struct to make sure it works with other components in there
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct NotRabbit;
+
 impl Component for NotRabbit {
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
@@ -120,16 +122,11 @@ impl Component for NotRabbit {
   }
 }
 
+#[derive(Resource, Serialize, Deserialize)]
 struct PopulationTracker(u64);
 
-impl Resource for PopulationTracker {}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceMitosis;
 
-impl Message for MsgReproduceMitosis {}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceAndDie;
-
-impl Message for MsgReproduceAndDie {}

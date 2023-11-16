@@ -1,9 +1,9 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn compose() {
   let mut world = World::new();
-  world.register_component::<IdHaver>();
 
   for id in 0..1000 {
     world.spawn_1(IdHaver(id));
@@ -20,12 +20,6 @@ fn compose() {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct IdHaver(u32);
-impl Component for IdHaver {
-  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
-  where
-    Self: Sized,
-  {
-    builder
-  }
-}

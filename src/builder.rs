@@ -5,7 +5,7 @@
 
 // should this go in the access module?
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap};
 
 use crate::{
   prelude::{Component, Entity, ListenerWorldAccess, World},
@@ -64,7 +64,7 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     &mut self,
     component: Box<dyn Component>,
   ) -> Option<Box<dyn Component>> {
-    let world = match self.access {
+    let _world = match self.access {
       EntityBuilderAccess::Immediate(ref world) => world,
       EntityBuilderAccess::Lazy(lazy) => lazy.world,
       EntityBuilderAccess::LazyWorld(ref world) => world,

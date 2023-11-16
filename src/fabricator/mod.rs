@@ -11,15 +11,15 @@ pub mod factory;
 use std::collections::BTreeMap;
 
 use blueprint::{BlueprintLibrary, BlueprintLookupError, BlueprintParseError};
-use factory::{ComponentFactory, SerdeComponentFactory};
+use factory::{ComponentFactory};
 
-use serde::de::DeserializeOwned;
+
 use smol_str::SmolStr;
 use thiserror::Error;
 
 use crate::{
   builder::EntityBuilder,
-  prelude::{Component, Entity},
+  prelude::{Entity},
 };
 
 /// A library of blueprints and the ability to instantiate entities from them.

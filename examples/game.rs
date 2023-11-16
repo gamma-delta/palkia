@@ -16,14 +16,10 @@ use crossterm::{
 };
 
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 fn main() -> crossterm::Result<()> {
   let mut world = World::new();
-
-  world.register_component::<Positioned>();
-  world.register_component::<AiRandomWanderer>();
-  world.register_component::<AiFollower>();
-  world.register_component::<Renderable>();
 
   world.insert_resource_default::<TerminalGfx>();
 
@@ -81,7 +77,8 @@ fn main() -> crossterm::Result<()> {
   Ok(())
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[register_component]
 struct Positioned(Coord);
 
 impl Positioned {
@@ -121,7 +118,8 @@ impl Component for Positioned {
   }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
+#[register_component]
 struct Renderable(char, Color);
 
 impl Renderable {
@@ -150,8 +148,9 @@ impl Component for Renderable {
 
 // AI Components
 
+#[derive(Clone, Serialize, Deserialize)]
+#[register_component]
 struct AiRandomWanderer;
-
 impl Component for AiRandomWanderer {
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
@@ -168,6 +167,8 @@ impl Component for AiRandomWanderer {
   }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
+#[register_component]
 struct AiFollower(Entity);
 impl Component for AiFollower {
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
@@ -192,7 +193,7 @@ impl Component for AiFollower {
   }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 struct MsgStepAI {
   move_dir: Direction9,
 }
@@ -205,9 +206,7 @@ impl MsgStepAI {
   }
 }
 
-impl Message for MsgStepAI {}
-
-#[derive(Debug, Clone)]
+#[derive(Message, Debug, Clone)]
 struct MsgRender {
   position: Option<Coord>,
 }
@@ -218,11 +217,7 @@ impl MsgRender {
   }
 }
 
-impl Message for MsgRender {}
-
 // Resources
 
-#[derive(Default)]
+#[derive(Resource, Default, Serialize, Deserialize)]
 struct TerminalGfx(HashMap<Coord, (char, Color)>);
-
-impl Resource for TerminalGfx {}

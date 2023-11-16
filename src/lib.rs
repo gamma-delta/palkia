@@ -14,11 +14,8 @@ pub mod world;
 
 mod vtablesathome;
 
-#[cfg(feature = "serde")]
-#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 pub mod serde;
 
-#[cfg(feature = "derive")]
 pub use palkia_macros as proc_macros;
 
 use std::{
@@ -134,6 +131,29 @@ pub mod prelude {
     world::World,
   };
 
-  #[cfg(feature = "derive")]
   pub use crate::proc_macros::*;
+}
+
+/// For the benefit of macros. No peeking!
+#[doc(hidden)]
+pub mod __private {
+  pub use ::paste::paste;
+  pub use linkme::distributed_slice;
+
+  pub use crate::{
+    callback::__private::*,
+    component::__private::*,
+    resource::__private::*,
+    vtablesathome::{ComponentVtable, ResourceVtable},
+  };
+
+  #[distributed_slice]
+  pub static COMPONENT_REGISTRATORS: [fn(
+    ComponentRegistererErased,
+  ) -> ComponentVtable];
+
+  #[distributed_slice]
+  pub static RESOURCE_REGISTRATORS: [fn(
+    ResourceRegistererErased,
+  ) -> ResourceVtable];
 }

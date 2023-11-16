@@ -1,11 +1,9 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn query() {
   let mut world = World::new();
-  world.register_component::<Foo>();
-  world.register_component::<Bar>();
-  world.register_component::<Baz>();
 
   let foo = world.spawn().with(Foo).build();
   let bar = world.spawn().with(Bar).build();
@@ -42,8 +40,6 @@ fn query() {
 #[test]
 fn double_query() {
   let mut world = World::new();
-  world.register_component::<Foo>();
-  world.register_component::<Bar>();
 
   let foo = world.spawn().with(Foo).build();
   let foobar = world.spawn().with(Foo).with(Bar).build();
@@ -63,7 +59,6 @@ fn double_query() {
 #[should_panic(expected = "borrowed")]
 fn double_query_rw() {
   let mut world = World::new();
-  world.register_component::<Foo>();
 
   let foo = world.spawn().with(Foo).build();
 
@@ -76,7 +71,6 @@ fn double_query_rw() {
 #[should_panic(expected = "borrowed")]
 fn double_query_wr() {
   let mut world = World::new();
-  world.register_component::<Foo>();
 
   let foo = world.spawn().with(Foo).build();
 
@@ -88,7 +82,6 @@ fn double_query_wr() {
 #[should_panic(expected = "borrowed")]
 fn double_query_ww() {
   let mut world = World::new();
-  world.register_component::<Foo>();
 
   let foo = world.spawn().with(Foo).build();
 
@@ -97,38 +90,14 @@ fn double_query_ww() {
   let _q2 = world.query::<&mut Foo>(foo).unwrap();
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[register_component(marker)]
 struct Foo;
 
-impl Component for Foo {
-  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
-  where
-    Self: Sized,
-  {
-    builder
-  }
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[register_component(marker)]
 struct Bar;
 
-impl Component for Bar {
-  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
-  where
-    Self: Sized,
-  {
-    builder
-  }
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[register_component(marker)]
 struct Baz;
-
-impl Component for Baz {
-  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
-  where
-    Self: Sized,
-  {
-    builder
-  }
-}

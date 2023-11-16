@@ -1,171 +1,84 @@
 /*! Serializing and deserializing entities.
 
-## Representation
-
-Components are stored as simple key-value pairs on each entity, where you provide the key values yourself.
-(It must be something that impls [`SerKey`](super::SerKey).)
-
-So, if you choose to use `&'static str` keys, storage for a sample entity might look something like this:
-
-```json
-an-entity: {
-    "position": [1.0, 2.0, 3.0],
-    "velocity": [4.0, 5.0, 6.0]
-}
-```
-
-For compactness, you might instead to make up a ComponentType enum with a variant for each component
-type you want serialized. You can use the [`serde_repr`](https://crates.io/crates/serde_repr) crate
-to have them serialized to integers:
-
-```text
-#[derive(Serialize_repr, Deserialize_repr, PartialEq, Debug)]
-#[repr(u8)]
-enum ComponentType {
-    Position, Velocity
-}
-```
-
-Then, an entity might be serialized like this:
-
-```json
-an-entity: {
-    0: [1.0, 2.0, 3.0],
-    1: [4.0, 5.0, 6.0]
-}
-```
-
-Entities with no serializable components will not be serialized. Put a marker component on them if you want them to stay.
-
 ---
 
 The design is more-or-less stolen from [Hecs' row serialization](https://docs.rs/hecs/0.9.0/hecs/serialize/row/trait.SerializeContext.html).
 */
 
-use std::{collections::BTreeSet, marker::PhantomData};
-
 use ahash::AHashMap;
 use serde::{
-  de::{DeserializeOwned, DeserializeSeed, MapAccess, Visitor},
-  ser::SerializeMap,
-  Deserializer, Serialize, Serializer,
+  de::{MapAccess, SeqAccess, Visitor},
+  ser::{SerializeMap, SerializeSeq},
+  Deserialize, Deserializer, Serialize, Serializer,
 };
 
 use crate::{
   builder::EntityBuilderComponentTracker,
-  prelude::{AccessQuery, Component, Entity, World},
-  TypeIdWrapper,
+  prelude::{Entity, World},
+  world::EntityAssoc,
 };
 
-use super::{SerKey, WorldSerdeInstructions};
+use super::component::{ComponentDeWrapper, ComponentSerWrapper};
 
 // =====================
 // === SERIALIZATION ===
 // =====================
 
-/// Helper struct for serializing entities.
-///
-/// Although the internals are exposed, you should probably just be calling [`EntitySerContext::try_serialize`].
-pub struct EntitySerContext<'a, 'w, S: Serializer> {
-  /// The map serializer you are to serialize the entities into.
-  /// This should have your Id keys mapped to component values.
-  pub map: &'a mut S::SerializeMap,
-  /// The entity being serialized.
-  pub entity: Entity,
-  /// Reference to the world, for fetching components.
-  pub world: &'w World,
-  /// Ids that have already been used. This is used by [`EntitySerContext::try_serialize`] to check your work
-  /// and make sure you don't accidentally use the same key twice.
-  extant_ids: AHashMap<&'static str, TypeIdWrapper>,
+/// We pretend to Serde that this and [`EntitiesDeWrapper`] are the same thing.
+pub(crate) struct EntitiesSerWrapper<'w> {
+  world: &'w World,
 }
 
-impl<'a, 'w, S: Serializer> EntitySerContext<'a, 'w, S> {
-  fn new(
-    world: &'w World,
-    map: &'a mut S::SerializeMap,
-    entity: Entity,
-  ) -> Self {
-    Self {
-      map,
-      extant_ids: AHashMap::new(),
-      world,
-      entity,
-    }
-  }
-
-  /// Convenience function that tries to get a component of the given type off of the world, and if it exists, serializes it.
-  /// This automatically checks that you don't accidentally use the same serde key for two types.
-  ///
-  /// You should call this with every type you wish to be serialized.
-  pub fn try_serialize<C: Component + Serialize>(
-    &mut self,
-  ) -> Result<(), S::Error> {
-    let tid = TypeIdWrapper::of::<C>();
-    let vt = self.world.component_vt(tid);
-    let friendly_name = vt.friendly_name;
-
-    if let Some(extant_tid) = self.extant_ids.insert(friendly_name, tid) {
-      if tid != extant_tid {
-        panic!(
-          "a serialization key was used for two different component types, {} and {}",
-          extant_tid.type_name, tid.type_name
-        );
-      }
-    }
-    if let Some(comp) = self.world.query::<&C>(self.entity) {
-      let vt = self.world.component_vt(tid);
-      self.map.serialize_entry(vt.friendly_name, comp.as_ref())?;
-    }
-
-    Ok(())
+impl<'w> EntitiesSerWrapper<'w> {
+  pub(crate) fn new(world: &'w World) -> Self {
+    Self { world }
   }
 }
 
-/// Wrapper that turns instructions for serializing various components into something serializable.
-///
-/// Each entity is mapped to one of these. What serde sees is a map of entities to these; this impl
-/// then pulls the rug out from under serde and uses the serialization instructions to insert ID->component
-/// pairs.
-///
-/// So, we pretend to Serde that this and [`EntityDeWrapper`] are the same thing.
-pub(super) struct EntitySerWrapper<
-  'w,
-  ResId: SerKey,
-  W: WorldSerdeInstructions<ResId>,
-> {
-  pub world: &'w World,
-  pub instrs: &'w W,
-  pub entity: Entity,
-
-  pub phantom: PhantomData<*const ResId>,
-}
-
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  EntitySerWrapper<'w, ResId, W>
-{
-  pub(super) fn new(world: &'w World, instrs: &'w W, entity: Entity) -> Self {
-    Self {
-      world,
-      instrs,
-      entity,
-      phantom: PhantomData,
-    }
-  }
-}
-
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
-  for EntitySerWrapper<'w, ResId, W>
-{
+impl<'w> Serialize for EntitiesSerWrapper<'w> {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
     S: Serializer,
   {
-    let len = self.instrs.component_count(self.entity, self.world);
-    let mut map = serializer.serialize_map(len)?;
-    let ctx =
-      EntitySerContext::<'_, 'w, S>::new(self.world, &mut map, self.entity);
-    self.instrs.serialize_entity(ctx)?;
+    let mut map = serializer.serialize_map(Some(self.world.entities.len()))?;
+    for entity in self.world.entities() {
+      map.serialize_key(&entity)?;
+      let wrapper = &EntitySerWrapper {
+        entity,
+        world: self.world,
+      };
+      map.serialize_value(wrapper)?;
+    }
     map.end()
+  }
+}
+
+struct EntitySerWrapper<'w> {
+  pub world: &'w World,
+  pub entity: Entity,
+}
+
+impl<'w> EntitySerWrapper<'w> {
+  pub fn new(world: &'w World, entity: Entity) -> Self {
+    Self { world, entity }
+  }
+}
+
+impl<'w> Serialize for EntitySerWrapper<'w> {
+  fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+  where
+    S: Serializer,
+  {
+    let components = self.world.entities.get(self.entity);
+    let mut seq = serializer.serialize_seq(Some(components.len()))?;
+
+    for (_tid, assoc) in components.iter() {
+      let inner = assoc.read().unwrap();
+      let wrapper = ComponentSerWrapper::new(&**inner);
+      seq.serialize_element(&wrapper)?;
+    }
+
+    seq.end()
   }
 }
 
@@ -173,182 +86,84 @@ impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Serialize
 // === DESERIALIZATION ===
 // =======================
 
-// There's a lot of layers here: we have a wrapper around a HashMap<Entity, EntityBuilderComponentTracker>
-// (EntitiesDeWrapper), which forwards to a wrapper that reads the EntityBuilderComponentTrackers (EntityDeWrapper)
-
-/// Helper struct for deserializing entities.
-pub struct EntityDeContext<'a, 'de, M: MapAccess<'de>> {
-  map: M,
-  tracker: &'a mut EntityBuilderComponentTracker,
-  key: String,
-
-  accepted_entity: bool,
-  phantom: PhantomData<&'de ()>,
+/// Wrapper that reads a seq of externally tagged component.
+pub(super) struct EntitiesDeWrapper {
+  pub entities: AHashMap<Entity, EntityAssoc>,
 }
 
-impl<'a, 'de, M: MapAccess<'de>> EntityDeContext<'a, 'de, M> {
-  fn new(
-    map: M,
-    tracker: &'a mut EntityBuilderComponentTracker,
-    key: String,
-  ) -> Self {
-    Self {
-      map,
-      tracker,
-      key,
-      accepted_entity: false,
-      phantom: PhantomData,
-    }
-  }
-
-  pub fn key(&self) -> &str {
-    &self.key
-  }
-
-  /// Signal that the key returned by [`EntityDeContext::key`] is associated with a component of this type.
-  ///
-  /// Consumes self so you don't accidentally call it twice.
-  pub fn accept<C: Component + DeserializeOwned>(
-    &mut self,
-  ) -> Result<(), M::Error> {
-    if self.accepted_entity {
-      panic!("tried to accept a component twice in a deserialize_entity impl");
-    }
-    self.accepted_entity = true;
-
-    let comp: C = self.map.next_value()?;
-    self.tracker.insert(comp);
-    Ok(())
-  }
-}
-
-/// Wrapper that reads entity-components pairs out of a map.
-pub(super) struct EntitiesDeWrapper<
-  'w,
-  ResId: SerKey,
-  W: WorldSerdeInstructions<ResId>,
-> {
-  instrs: &'w W,
-  phantom: PhantomData<*const ResId>,
-}
-
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  EntitiesDeWrapper<'w, ResId, W>
-{
-  pub(super) fn new(instrs: &'w W) -> Self {
-    Self {
-      instrs,
-      phantom: PhantomData,
-    }
-  }
-}
-
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  DeserializeSeed<'de> for EntitiesDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
-  type Value = AHashMap<Entity, EntityBuilderComponentTracker>;
-
-  fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+impl<'de> Deserialize<'de> for EntitiesDeWrapper {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where
     D: Deserializer<'de>,
   {
-    deserializer.deserialize_map(self)
+    let entities = deserializer.deserialize_map(EntitiesDeVisitor)?;
+    Ok(Self { entities })
   }
 }
 
-/// It's its own visitor
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
-  for EntitiesDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
-  type Value = AHashMap<Entity, EntityBuilderComponentTracker>;
+struct EntitiesDeVisitor;
+
+impl<'de> Visitor<'de> for EntitiesDeVisitor {
+  type Value = AHashMap<Entity, EntityAssoc>;
 
   fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-    formatter.write_str("a map")
+    write!(
+      formatter,
+      "a map of entities to sequences of externally-tagged components"
+    )
   }
 
   fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
   where
     A: MapAccess<'de>,
   {
-    let mut out = AHashMap::with_capacity(map.size_hint().unwrap_or(0));
+    let mut out = AHashMap::new();
 
     while let Some(entity) = map.next_key()? {
+      // force
       let _: Entity = entity;
-      let seed = ComponentDeWrapper::new(self.instrs);
-      let tracker = map.next_value_seed(seed)?;
-      out.insert(entity, tracker);
+      let components: EntityDeWrapper = map.next_value()?;
+
+      // how ergonomic
+      out.insert(entity, EntityAssoc::new(components.components.components));
     }
 
     Ok(out)
   }
 }
 
-/// Wrapper that reads component key-value pairs out of a deserializer.
-struct ComponentDeWrapper<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>> {
-  instrs: &'w W,
-  phantom: PhantomData<*const ResId>,
+struct EntityDeWrapper {
+  components: EntityBuilderComponentTracker,
 }
 
-impl<'w, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  ComponentDeWrapper<'w, ResId, W>
-{
-  fn new(instrs: &'w W) -> Self {
-    Self {
-      instrs,
-      phantom: PhantomData,
-    }
-  }
-}
-
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>>
-  DeserializeSeed<'de> for ComponentDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
-  type Value = EntityBuilderComponentTracker;
-
-  fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+impl<'de> Deserialize<'de> for EntityDeWrapper {
+  fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
   where
     D: Deserializer<'de>,
   {
-    deserializer.deserialize_map(self)
+    let components = deserializer.deserialize_seq(EntityDeVisitor)?;
+    Ok(EntityDeWrapper { components })
   }
 }
 
-// again it is its own visitor
-impl<'w, 'de, ResId: SerKey, W: WorldSerdeInstructions<ResId>> Visitor<'de>
-  for ComponentDeWrapper<'w, ResId, W>
-where
-  'de: 'w,
-{
+struct EntityDeVisitor;
+
+impl<'de> Visitor<'de> for EntityDeVisitor {
   type Value = EntityBuilderComponentTracker;
 
   fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-    formatter.write_str("a map of component IDs to component data")
+    write!(formatter, "a sequence of externally tagged components")
   }
 
-  fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+  fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
   where
-    A: serde::de::MapAccess<'de>,
+    A: SeqAccess<'de>,
   {
-    let mut tracker = EntityBuilderComponentTracker::default();
-    while let Some(key) = map.next_key()? {
+    let mut tracker = EntityBuilderComponentTracker::new();
+    while let Some(next) = seq.next_element()? {
       // force type
-      let _: String = key;
-
-      let mut ctx = EntityDeContext::new(map, &mut tracker, key);
-      self.instrs.deserialize_entity(&mut ctx)?;
-
-      if !ctx.accepted_entity {
-        panic!("did not accept any entity in a deserialize_entity impl");
-      }
-
-      // Recover the map
-      map = ctx.map;
+      let _: ComponentDeWrapper = next;
+      tracker.insert_raw(next.inner);
     }
 
     Ok(tracker)

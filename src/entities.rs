@@ -3,6 +3,7 @@
 use std::{collections::hash_map, fmt, iter};
 
 use generational_arena::Index;
+use serde::{Deserialize, Serialize};
 
 use crate::world::EntityAssoc;
 
@@ -13,9 +14,19 @@ use crate::world::EntityAssoc;
 /// The `LowerHex` fmt impl prints it shorter as `index@generation`.
 /// (This uses decimal numbers. Yes this isn't what format specifiers
 /// are supposed to be for. I don't care.)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(transparent))]
+#[derive(
+  Debug,
+  Clone,
+  Copy,
+  PartialEq,
+  Eq,
+  Hash,
+  PartialOrd,
+  Ord,
+  Serialize,
+  Deserialize,
+)]
+#[serde(transparent)]
 pub struct Entity(pub(crate) Index);
 
 impl Entity {

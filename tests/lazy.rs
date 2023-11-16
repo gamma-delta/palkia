@@ -1,12 +1,9 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn lazy_spawn() {
   let mut world = World::new();
-
-  world.register_component::<Foo>();
-  world.register_component::<Bar>();
-  world.register_component::<Baz>();
 
   let world_ref = &world;
   let e = world_ref.lazy_spawn().with(Foo).with(Bar).build();
@@ -23,7 +20,6 @@ fn lazy_spawn() {
 #[test]
 fn lazy_despawn() {
   let mut world = World::new();
-  world.register_component::<Foo>();
 
   let es = (0..100)
     .map(|i| {
@@ -43,27 +39,12 @@ fn lazy_despawn() {
   assert_eq!(world.len(), 0);
 }
 
-macro_rules! impl_component {
-    (@ $ty:ty) => {
-        impl Component for $ty {
-            fn register_handlers(
-                builder: HandlerBuilder<Self>,
-            ) -> HandlerBuilder<Self>
-            where
-                Self: Sized,
-            {
-                builder
-            }
-        }
-    };
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl_component!{@ $ty}
-        )*
-    };
-}
-
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Foo;
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Bar;
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Baz;
-impl_component!(Foo, Bar, Baz);

@@ -3,20 +3,28 @@
 use crate::{
   access::{AccessEntityStats, AccessQuery, AccessResources},
   entities::EntityLiveness,
-  prelude::{Component, Entity, Query, World},
+  prelude::{Entity, Query, World},
   resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
 };
 
-pub(crate) type OnCreateCallback =
-  Box<dyn Fn(&dyn Component, Entity, &CallbackWorldAccess) + Send + Sync>;
-pub(crate) type OnRemoveCallback =
-  Box<dyn Fn(Box<dyn Component>, Entity, &CallbackWorldAccess) + Send + Sync>;
+#[doc(hidden)]
+pub mod __private {
+  use crate::prelude::{Component, Entity};
 
-pub(crate) enum Callbacks {
-  Create(OnCreateCallback),
-  Remove(OnRemoveCallback),
-  Both(OnCreateCallback, OnRemoveCallback),
+  use super::CallbackWorldAccess;
+
+  pub type OnCreateCallback =
+    Box<dyn Fn(&dyn Component, Entity, &CallbackWorldAccess) + Send + Sync>;
+  pub type OnRemoveCallback =
+    Box<dyn Fn(Box<dyn Component>, Entity, &CallbackWorldAccess) + Send + Sync>;
+
+  pub enum Callbacks {
+    Create(OnCreateCallback),
+    Remove(OnRemoveCallback),
+    Both(OnCreateCallback, OnRemoveCallback),
+  }
 }
+pub(crate) use __private::*;
 
 impl Callbacks {
   pub fn get_create(&self) -> Option<&OnCreateCallback> {

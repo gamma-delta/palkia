@@ -1,9 +1,9 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn defer_message() {
   let mut world = World::new();
-  world.register_component::<YakShaver>();
 
   let shaver = world.spawn_1(YakShaver::new(true));
 
@@ -17,13 +17,14 @@ fn defer_message() {
 #[should_panic = "loop of events"]
 fn double_borrow_message() {
   let mut world = World::new();
-  world.register_component::<YakShaver>();
 
   let shaver = world.spawn_1(YakShaver::new(false));
 
   world.dispatch(shaver, MsgShaveYak::new(2));
 }
 
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct YakShaver {
   yaks_shaved: usize,
   defer: bool,
@@ -61,7 +62,7 @@ impl Component for YakShaver {
   }
 }
 
-#[derive(Clone)]
+#[derive(Message, Clone)]
 struct MsgShaveYak {
   pub shaves: usize,
 }
@@ -73,5 +74,3 @@ impl MsgShaveYak {
     }
   }
 }
-
-impl Message for MsgShaveYak {}

@@ -1,6 +1,11 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
+/// sorry, i meant `struct X`
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct Twitter;
+
 impl Component for Twitter {
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
@@ -13,7 +18,10 @@ impl Component for Twitter {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct Panicker;
+
 impl Component for Panicker {
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
   where
@@ -23,14 +31,12 @@ impl Component for Panicker {
   }
 }
 
+#[derive(Message)]
 struct MsgFoo;
-impl Message for MsgFoo {}
 
 #[test]
 fn cancel() {
   let mut world = World::new();
-  world.register_component::<Twitter>();
-  world.register_component::<Panicker>();
 
   let e = world.spawn().with(Twitter).with(Panicker).build();
   world.dispatch(e, MsgFoo);
@@ -41,7 +47,6 @@ fn cancel() {
 #[should_panic = "Panicker got MsgFoo"]
 fn uncancelled() {
   let mut world = World::new();
-  world.register_component::<Panicker>();
 
   let e = world.spawn_1(Panicker);
   world.dispatch(e, MsgFoo);

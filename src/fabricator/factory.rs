@@ -24,39 +24,32 @@ where
   ) -> eyre::Result<EntityBuilder<'a, 'w>>;
 }
 
-#[cfg(feature = "serde")]
-mod serde_factory {
-  use super::*;
+/// Convenience wrapper for the common case where you want to just deserialize something from
+/// a node with serde.
+///
+/// Doesn't use the `Ctx` generic (just has it in PhantomData).
+// the funky generic in the Phantom Data is due to irritating send/sync reasons
+pub struct SerdeComponentFactory<T, Ctx>(PhantomData<fn(&Ctx) -> T>);
 
-  /// Convenience wrapper for the common case where you want to just deserialize something from
-  /// a node with serde.
-  ///
-  /// Doesn't use the `Ctx` generic (just has it in PhantomData).
-  // the funky generic in the Phantom Data is due to irritating send/sync reasons
-  pub struct SerdeComponentFactory<T, Ctx>(PhantomData<fn(&Ctx) -> T>);
-
-  impl<T, Ctx> SerdeComponentFactory<T, Ctx> {
-    pub fn new() -> Self {
-      Self(PhantomData)
-    }
-  }
-
-  impl<T, Ctx> ComponentFactory<Ctx> for SerdeComponentFactory<T, Ctx>
-  where
-    Self: 'static,
-    T: DeserializeOwned + Component,
-  {
-    fn assemble<'a, 'w>(
-      &self,
-      mut builder: EntityBuilder<'a, 'w>,
-      node: &KdlNode,
-      _ctx: &Ctx,
-    ) -> eyre::Result<EntityBuilder<'a, 'w>> {
-      let comp: T = knurdy::deserialize_node(node)?;
-      builder.insert(comp);
-      Ok(builder)
-    }
+impl<T, Ctx> SerdeComponentFactory<T, Ctx> {
+  pub fn new() -> Self {
+    Self(PhantomData)
   }
 }
-#[cfg(feature = "serde")]
-pub use serde_factory::SerdeComponentFactory;
+
+impl<T, Ctx> ComponentFactory<Ctx> for SerdeComponentFactory<T, Ctx>
+where
+  Self: 'static,
+  T: DeserializeOwned + Component,
+{
+  fn assemble<'a, 'w>(
+    &self,
+    mut builder: EntityBuilder<'a, 'w>,
+    node: &KdlNode,
+    _ctx: &Ctx,
+  ) -> eyre::Result<EntityBuilder<'a, 'w>> {
+    let comp: T = knurdy::deserialize_node(node)?;
+    builder.insert(comp);
+    Ok(builder)
+  }
+}

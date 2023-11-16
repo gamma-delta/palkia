@@ -5,32 +5,27 @@ pub(crate) mod storage;
 #[doc(hidden)]
 pub use storage::EntityAssoc;
 
-use std::collections::BTreeMap;
-
 use crossbeam::channel;
 
 use crate::{
   access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources},
   builder::EntityBuilder,
   callback::CallbackWorldAccess,
-  component::{Component, ComponentRegisterer},
+  component::Component,
   entities::{Entity, EntityIter, EntityLiveness},
   loop_panic,
   messages::{ListenerWorldAccess, Message, MsgHandlerInner},
   prelude::Query,
-  resource::{
-    ReadResource, Resource, ResourceLookupError, ResourceMap, WriteResource,
-  },
-  vtablesathome::ComponentVtable,
-  ToTypeIdWrapper, TypeIdWrapper,
+  resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
+  vtablesathome::ComponentVtables,
+  ToTypeIdWrapper,
 };
 
-use self::storage::EntityStorage;
+use self::storage::{EntityStorage, ResourceMap};
 
 pub struct World {
   /// Each entity maps type IDs to their components
   pub(crate) entities: EntityStorage,
-  pub(crate) components: BTreeMap<TypeIdWrapper, ComponentVtable>,
 
   pub(crate) resources: ResourceMap,
 
@@ -44,25 +39,10 @@ impl World {
 
     Self {
       entities: EntityStorage::default(),
-      components: BTreeMap::new(),
       resources: ResourceMap::new(),
       lazy_sender: tx,
       lazy_channel: rx,
     }
-  }
-
-  /// Register a component type to the world.
-  ///
-  /// Panics if that component type has already been registered.
-  pub fn register_component<C: Component>(&mut self) {
-    let tid = TypeIdWrapper::of::<C>();
-    if self.components.contains_key(&tid) {
-      panic!("already registered component type {:?}", tid.type_name);
-    }
-
-    let blank_builder = ComponentRegisterer::<C>::new();
-    let builder = C::register(blank_builder);
-    self.components.insert(tid, builder.into_vtable());
   }
 
   /// Set up a builder to spawn an entity with a whole mess of components.
@@ -155,21 +135,12 @@ impl World {
     self.entities.iter()
   }
 
-  /// Returns if the given component type has been registered.
-  pub fn knows_component<C: Component>(&self) -> bool {
-    self.knows_component_tid(TypeIdWrapper::of::<C>())
-  }
-
-  #[doc(hidden)]
-  pub fn knows_component_tid(&self, tid: TypeIdWrapper) -> bool {
-    self.components.contains_key(&tid)
-  }
-
   /// Finish the spawning of an entity that's been lazily created but not
   /// instantiated fully.
   ///
   /// Panics if the invariant is not upheld.
   pub(crate) fn finish_spawn(&mut self, target: Entity, assoc: EntityAssoc) {
+    /*
     #[cfg(debug_assertions)]
     {
       for (cmp_tid, _) in assoc.iter() {
@@ -181,6 +152,7 @@ impl World {
         }
       }
     }
+    */
 
     self.entities.finish_spawn(target, assoc);
     self.run_creation_callbacks(target);
@@ -188,12 +160,10 @@ impl World {
 
   pub(crate) fn run_creation_callbacks(&self, e: Entity) {
     let access = CallbackWorldAccess::new(self);
+
     for (tid, comp) in self.entities.get(e).components() {
-      if let Some(cb) = self
-        .components
-        .get(tid)
-        .and_then(|vt| vt.callbacks.as_ref()?.get_create())
-      {
+      let vtable = ComponentVtables::by_tid(*tid);
+      if let Some(cb) = vtable.callbacks().and_then(|vt| vt.get_create()) {
         // i am *pretty* sure this will never be locked?
         let comp = comp.try_read().unwrap();
         cb(comp.as_ref(), e, &access);
@@ -203,24 +173,12 @@ impl World {
   fn run_removal_callback(&self, e: Entity, comps: EntityAssoc) {
     let access = CallbackWorldAccess::new(self);
     for (tid, comp) in comps.into_iter() {
-      if let Some(cb) = self
-        .components
-        .get(&tid)
-        .and_then(|vt| vt.callbacks.as_ref()?.get_remove())
-      {
+      let vtable = ComponentVtables::by_tid(tid);
+      if let Some(cb) = vtable.callbacks().and_then(|vt| vt.get_remove()) {
         let comp = comp.into_inner().unwrap();
         cb(comp, e, &access);
       }
     }
-  }
-
-  pub(crate) fn component_vt(&self, tid: TypeIdWrapper) -> &ComponentVtable {
-    self.components.get(&tid).unwrap_or_else(|| {
-      panic!(
-        "tried to access the unregistered component type {}",
-        tid.type_name
-      )
-    })
   }
 
   #[doc(hidden)]
@@ -321,7 +279,7 @@ pub(crate) fn dispatch_even_innerer(
 
   let components = access.world.entities.get(target);
   for (comp_tid, comp) in components.iter() {
-    let vt = access.world.component_vt(comp_tid);
+    let vt = ComponentVtables::by_tid(comp_tid);
     if let Some(handler) = vt.msg_table.get(&msg_tid) {
       let lock = comp
         .try_read()

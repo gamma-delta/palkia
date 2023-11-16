@@ -1,12 +1,11 @@
 //! Check lazy spawning and despawning is sound.
 
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
 #[test]
 fn spawn() {
   let mut world = World::new();
-
-  world.register_component::<Rabbit>();
 
   world.spawn().with(Rabbit).build();
 
@@ -23,8 +22,6 @@ fn spawn() {
 fn spawn_despawn() {
   let mut world = World::new();
 
-  world.register_component::<Rabbit>();
-
   world.spawn().with(Rabbit).build();
 
   for _ in 0..16 {
@@ -40,8 +37,6 @@ fn spawn_despawn() {
 fn spawn_dedespawn() {
   let mut world = World::new();
 
-  world.register_component::<Rabbit>();
-
   world.spawn().with(Rabbit).build();
 
   for _ in 0..100 {
@@ -55,7 +50,6 @@ fn spawn_dedespawn() {
 #[test]
 fn spawn_again() {
   let mut world = World::new();
-  world.register_component::<Rabbit>();
 
   let mut builder = world.spawn();
 
@@ -70,7 +64,6 @@ fn spawn_again() {
 #[test]
 fn infanticide() {
   let mut world = World::new();
-  world.register_component::<Rabbit>();
 
   world.spawn_1(Rabbit);
 
@@ -81,6 +74,8 @@ fn infanticide() {
   }
 }
 
+#[derive(Serialize, Deserialize)]
+#[register_component]
 struct Rabbit;
 
 impl Rabbit {
@@ -151,22 +146,14 @@ impl Component for Rabbit {
   }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceMitosis;
 
-impl Message for MsgReproduceMitosis {}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceAndDie;
 
-impl Message for MsgReproduceAndDie {}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceAndDieAndDie;
 
-impl Message for MsgReproduceAndDieAndDie {}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Message, Debug, Clone, Copy)]
 struct MsgReproduceButThenJustKillYourOffspring;
-
-impl Message for MsgReproduceButThenJustKillYourOffspring {}

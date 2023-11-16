@@ -1,36 +1,19 @@
 use palkia::prelude::*;
+use serde::{Deserialize, Serialize};
 
-macro_rules! impl_component {
-    (@ $ty:ty) => {
-        impl Component for $ty {
-            fn register_handlers(
-                builder: HandlerBuilder<Self>,
-            ) -> HandlerBuilder<Self>
-            where
-                Self: Sized,
-            {
-                builder
-            }
-        }
-    };
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl_component!{@ $ty}
-        )*
-    };
-}
-
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Foo(u32);
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Bar(String);
+#[derive(Serialize, Deserialize)]
+#[register_component(marker)]
 struct Baz(i32);
-impl_component!(Foo, Bar, Baz);
 
 #[test]
 fn get_components_off_builder() {
   let mut world = World::new();
-  world.register_component::<Foo>();
-  world.register_component::<Bar>();
-  world.register_component::<Baz>();
 
   let mut builder = world.spawn();
   builder.insert(Foo(42));

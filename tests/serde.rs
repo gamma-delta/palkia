@@ -1,11 +1,11 @@
-#![cfg(feature = "serde")]
-
-use palkia::{prelude::*, serde::*};
+use palkia::{
+  manually_register_resource, prelude::*, resource::ResourceRegisterer,
+};
 use serde::{Deserialize, Serialize};
 
 #[test]
 fn entity_roundtrip() {
-  let mut world1 = registered_world();
+  let mut world1 = World::new();
 
   world1.spawn().with(Counter::default()).build();
   world1.spawn().with(Duplicator).build();
@@ -13,6 +13,10 @@ fn entity_roundtrip() {
     .spawn()
     .with(Counter::default())
     .with(Duplicator)
+    .build();
+  world1
+    .spawn()
+    .with(ComponentWithStrangeFriendlyName(-7604))
     .build();
 
   for _ in 0..10 {
@@ -22,11 +26,9 @@ fn entity_roundtrip() {
 
   let entities = world1.iter().collect::<Vec<_>>();
 
-  let bin = ser_world(&mut world1);
+  let bin = bincode::serialize(&world1).unwrap();
 
-  let mut world2 = registered_world();
-
-  de_world(&mut world2, &bin);
+  let world2: World = bincode::deserialize(&bin).unwrap();
 
   assert_eq!(world1.len(), world2.len());
   for e in entities {
@@ -36,6 +38,7 @@ fn entity_roundtrip() {
       "{:?} had mismatching component counts",
       e
     );
+
     if let Some(w1_counter) = world1.query::<&Counter>(e) {
       let w2_counter = world2.query::<&Counter>(e).unwrap_or_else(|| {
         panic!("{:?} had a counter before serialization but not after", e)
@@ -47,12 +50,27 @@ fn entity_roundtrip() {
         e
       );
     }
+
     if world1.query::<&Duplicator>(e).is_some() {
       assert!(
         world2.query::<&Duplicator>(e).is_some(),
         "{:?} had a duplicator before serialization but not after",
         e
       )
+    }
+
+    if let Some(w1_strange) =
+      world1.query::<&ComponentWithStrangeFriendlyName>(e)
+    {
+      let w2_strange = world2.query::<&ComponentWithStrangeFriendlyName>(e).unwrap_or_else(|| {
+        panic!("{:?} had a component with strange friendly name before serialization but not after", e)
+      });
+      assert_eq!(
+        w1_strange.as_ref(),
+        w2_strange.as_ref(),
+        "{:?}'s values of strange friendly name mismatched",
+        e
+      );
     }
   }
 }
@@ -64,23 +82,24 @@ fn resource_roundtrip() {
     foo: 7604,
     bar: 69420,
   });
-  world1.insert_resource(ResNotSerialized);
+  world1.insert_resource(ResWithStrangeFriendlyName("hello world".to_string()));
 
-  let bin = ser_world(&mut world1);
+  let bin = bincode::serialize(&world1).unwrap();
 
-  let mut world2 = World::new();
-  de_world(&mut world2, &bin);
+  let mut world2: World = bincode::deserialize(&bin).unwrap();
 
   let a_res1 = world1.get_resource::<AResource>().unwrap();
   let a_res2 = world2.get_resource::<AResource>().unwrap();
   assert_eq!(a_res1, a_res2);
 
-  assert!(!world2.contains_resource::<ResNotSerialized>());
+  let odd_name1 = world1.get_resource::<ResWithStrangeFriendlyName>().unwrap();
+  let odd_name2 = world2.get_resource::<ResWithStrangeFriendlyName>().unwrap();
+  assert_eq!(odd_name1, odd_name2);
 }
 
 #[test]
 fn roundtrip_all() {
-  let mut world1 = registered_world();
+  let mut world1 = World::new();
 
   world1.insert_resource(AResource {
     foo: 0xF00,
@@ -103,11 +122,9 @@ fn roundtrip_all() {
 
   let entities = world1.iter().collect::<Vec<_>>();
 
-  let bin = ser_world(&mut world1);
+  let bin = bincode::serialize(&world1).unwrap();
 
-  let mut world2 = registered_world();
-
-  de_world(&mut world2, &bin);
+  let mut world2: World = bincode::deserialize(&bin).unwrap();
 
   assert_eq!(world1.len(), world2.len());
   for e in entities {
@@ -149,7 +166,7 @@ fn roundtrip_all() {
 
 #[test]
 fn callbacks() {
-  let mut world1 = registered_world();
+  let mut world1 = World::new();
   world1.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
 
   world1.spawn().with(Duplicator).build();
@@ -159,12 +176,9 @@ fn callbacks() {
     world1.finalize();
   }
 
-  let bin = ser_world(&mut world1);
+  let bin = bincode::serialize(&world1).unwrap();
 
-  let mut world2 = registered_world();
-  world2.insert_resource_default::<ResThatIncrementsANumberWhenADuplicatorIsCreated>();
-
-  de_world(&mut world2, &bin);
+  let mut world2: World = bincode::deserialize(&bin).unwrap();
 
   let rtianwadic1 = world1
     .get_resource::<ResThatIncrementsANumberWhenADuplicatorIsCreated>()
@@ -172,103 +186,14 @@ fn callbacks() {
   let rtianwadic2 = world2
     .get_resource::<ResThatIncrementsANumberWhenADuplicatorIsCreated>()
     .unwrap();
-  // note that we don't actually de/serialize that resource
+  // note that we don't actually de/serialize the count in that resource
   assert_eq!(rtianwadic1.count, rtianwadic2.count);
-}
-
-// Serde helpers
-
-fn ser_world(world: &mut World) -> Vec<u8> {
-  let mut writer = Vec::new();
-  let mut serializer =
-    bincode::Serializer::new(&mut writer, bincode::DefaultOptions::new());
-  world.serialize(SerdeInstrs, &mut serializer).unwrap();
-  writer
-}
-
-fn de_world(world: &mut World, bin: &[u8]) {
-  let mut deserializer =
-    bincode::Deserializer::from_slice(&bin, bincode::DefaultOptions::new());
-  world.deserialize(SerdeInstrs, &mut deserializer).unwrap();
-}
-
-// World serde impl
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-enum ResourceKey {
-  AResource,
-  DupliCounter,
-}
-
-struct SerdeInstrs;
-
-impl WorldSerdeInstructions<ResourceKey> for SerdeInstrs {
-  fn serialize_entity<S: serde::Serializer>(
-    &self,
-    mut ctx: EntitySerContext<'_, '_, S>,
-  ) -> Result<(), S::Error> {
-    ctx.try_serialize::<Counter>()?;
-    ctx.try_serialize::<Duplicator>()?;
-
-    Ok(())
-  }
-
-  fn component_count(&self, e: Entity, world: &World) -> Option<usize> {
-    // I'm not sure of a less horrible way to do this
-    let count = world.query::<&Counter>(e).is_some() as usize
-      + world.query::<&Duplicator>(e).is_some() as usize;
-
-    Some(count)
-  }
-
-  fn deserialize_entity<'a, 'de, M: serde::de::MapAccess<'de>>(
-    &'a self,
-    ctx: &mut EntityDeContext<'_, 'de, M>,
-  ) -> Result<(), M::Error>
-  where
-    'de: 'a,
-  {
-    match ctx.key() {
-      "Counter" => ctx.accept::<Counter>(),
-      "Duplicator" => ctx.accept::<Duplicator>(),
-      _ => panic!(),
-    }
-  }
-
-  fn serialize_resource<S: serde::Serializer>(
-    &self,
-    mut ctx: ResourceSerContext<'_, '_, ResourceKey, S>,
-  ) -> Result<(), S::Error> {
-    ctx.try_serialize::<AResource>(ResourceKey::AResource)?;
-    ctx.try_serialize::<DupliCounter>(ResourceKey::DupliCounter)?;
-
-    Ok(())
-  }
-
-  fn resource_count(&self, world: &World) -> Option<usize> {
-    let count = world.contains_resource::<AResource>() as usize
-      + world.contains_resource::<DupliCounter>() as usize;
-
-    Some(count)
-  }
-
-  fn deserialize_resource<'a, 'de, M: serde::de::MapAccess<'de>>(
-    &'a self,
-    ctx: &mut ResourceDeContext<'_, 'de, M, ResourceKey>,
-  ) -> Result<(), M::Error>
-  where
-    'de: 'a,
-  {
-    match ctx.key() {
-      ResourceKey::AResource => ctx.accept::<AResource>(),
-      ResourceKey::DupliCounter => ctx.accept::<DupliCounter>(),
-    }
-  }
 }
 
 // ECM stuff
 
 #[derive(Debug, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[register_component]
 struct Counter {
   count: u64,
 }
@@ -286,6 +211,7 @@ impl Component for Counter {
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[register_component]
 struct Duplicator;
 
 impl Component for Duplicator {
@@ -315,37 +241,52 @@ impl Component for Duplicator {
   }
 }
 
-fn registered_world() -> World {
-  let mut w = World::new();
-  w.register_component::<Counter>();
-  w.register_component::<Duplicator>();
-  w
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[register_component]
+struct ComponentWithStrangeFriendlyName(i64);
+
+impl Component for ComponentWithStrangeFriendlyName {
+  fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
+  where
+    Self: Sized,
+  {
+    builder.set_friendly_name("ligma")
+  }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Resource, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct AResource {
   foo: i32,
   bar: i32,
 }
-impl Resource for AResource {}
 
-#[derive(Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Resource, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
 struct DupliCounter {
   count: u64,
 }
-impl Resource for DupliCounter {}
-
-struct ResNotSerialized;
-impl Resource for ResNotSerialized {}
 
 /// Basically the same as DupliCounter but it does it with a callback
 /// and isn't serialized
-#[derive(Default)]
+#[derive(Default, Resource, Serialize, Deserialize)]
 struct ResThatIncrementsANumberWhenADuplicatorIsCreated {
+  #[serde(skip_deserializing)]
   count: u64,
 }
-impl Resource for ResThatIncrementsANumberWhenADuplicatorIsCreated {}
 
-#[derive(Clone)]
+/// Basically the same as DupliCounter but it does it with a callback
+/// and isn't serialized
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+struct ResWithStrangeFriendlyName(String);
+manually_register_resource!(ResWithStrangeFriendlyName);
+
+impl Resource for ResWithStrangeFriendlyName {
+  fn register(builder: ResourceRegisterer<Self>) -> ResourceRegisterer<Self>
+  where
+    Self: Sized,
+  {
+    builder.set_friendly_name("ligma")
+  }
+}
+
+#[derive(Clone, Message)]
 struct MsgTick;
-impl Message for MsgTick {}

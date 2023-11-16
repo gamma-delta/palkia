@@ -1,4 +1,7 @@
-use std::sync::RwLock;
+use std::{
+  collections::BTreeMap,
+  sync::{RwLock, TryLockError},
+};
 
 use ahash::AHashMap;
 use generational_arena::Arena;
@@ -7,6 +10,10 @@ use indexmap::IndexMap;
 use crate::{
   entities::EntityIter,
   prelude::{Component, Entity, EntityLiveness},
+  resource::{
+    ReadResource, Resource, ResourceLookupError, ResourceLookupErrorKind,
+    WriteResource,
+  },
   ToTypeIdWrapper, TypeIdWrapper,
 };
 
@@ -167,3 +174,123 @@ impl EntityAssoc {
 /// How each component is stored. Right now this uses naive locking; in the future we might
 /// do something fancier.
 pub(crate) type ComponentEntry = RwLock<Box<dyn Component>>;
+
+/// World storage for the resources
+pub(crate) struct ResourceMap {
+  map: BTreeMap<TypeIdWrapper, RwLock<Box<dyn Resource>>>,
+}
+
+impl ResourceMap {
+  pub fn new() -> Self {
+    Self {
+      map: BTreeMap::new(),
+    }
+  }
+
+  /// With a mutable reference, get a value from the map directly.
+  ///
+  /// If the value is poisoned, silently return `None`.
+  pub fn get<T: Resource>(&mut self) -> Option<&mut T> {
+    let resource = self.map.get_mut(&TypeIdWrapper::of::<T>())?;
+    resource
+      .get_mut()
+      .ok()
+      .map(|res| res.downcast_mut().unwrap())
+  }
+
+  /// With a mutable reference, get a value from the map directly.
+  ///
+  /// If the value is poisoned, silently return `None`.
+  pub fn remove<T: Resource>(&mut self) -> Option<T> {
+    let resource = self.map.remove(&TypeIdWrapper::of::<T>())?;
+    match resource.into_inner() {
+      Ok(it) => Some(*it.downcast().unwrap()),
+      Err(_) => None,
+    }
+  }
+
+  pub fn read<T: Resource>(
+    &self,
+  ) -> Result<ReadResource<'_, T>, ResourceLookupError> {
+    let tid = TypeIdWrapper::of::<T>();
+
+    let result = 'try_at_home: {
+      let Some(resource) = self.map.get(&tid) else {
+        break 'try_at_home Err(ResourceLookupErrorKind::NotFound);
+      };
+
+      let lock = match resource.try_read() {
+        Ok(it) => it,
+        Err(TryLockError::WouldBlock) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Locked)
+        }
+        Err(TryLockError::Poisoned(_)) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Poisoned)
+        }
+      };
+
+      Ok(ReadResource::new(lock))
+    };
+    result.map_err(|kind| ResourceLookupError { tid, kind })
+  }
+
+  pub fn write<T: Resource>(
+    &self,
+  ) -> Result<WriteResource<'_, T>, ResourceLookupError> {
+    let tid = TypeIdWrapper::of::<T>();
+
+    let result = 'try_at_home: {
+      let Some(resource) = self.map.get(&tid) else {
+        break 'try_at_home Err(ResourceLookupErrorKind::NotFound);
+      };
+      let lock = match resource.try_write() {
+        Ok(it) => it,
+        Err(TryLockError::WouldBlock) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Locked)
+        }
+        Err(TryLockError::Poisoned(_)) => {
+          break 'try_at_home Err(ResourceLookupErrorKind::Poisoned)
+        }
+      };
+
+      Ok(WriteResource::new(lock))
+    };
+    result.map_err(|kind| ResourceLookupError { tid, kind })
+  }
+
+  pub fn insert<T: Resource>(&mut self, resource: T) -> Option<T> {
+    self
+      .map
+      .insert(
+        TypeIdWrapper::of::<T>(),
+        RwLock::new(Box::new(resource) as _),
+      )
+      .map(|old| *old.into_inner().unwrap().downcast().unwrap())
+  }
+
+  pub fn insert_raw(
+    &mut self,
+    resource: Box<dyn Resource>,
+  ) -> Option<Box<dyn Resource>> {
+    let tid = (*resource).type_id_wrapper();
+    self
+      .map
+      .insert(tid, RwLock::new(resource))
+      .map(|old| old.into_inner().unwrap())
+  }
+
+  pub fn contains<T: Resource>(&self) -> bool {
+    self.map.contains_key(&TypeIdWrapper::of::<T>())
+  }
+
+  pub fn iter(
+    &self,
+  ) -> impl Iterator<Item = (TypeIdWrapper, &RwLock<Box<dyn Resource>>)> + '_
+  {
+    self.map.iter().map(|(tid, res)| (*tid, res))
+  }
+
+  pub fn len(&self) -> usize {
+    self.map.len()
+  }
+}
