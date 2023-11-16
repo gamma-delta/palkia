@@ -27,7 +27,6 @@ pub struct ComponentVtable {
   pub callbacks: Option<Callbacks>,
 
   pub deser: DeserializeFn<dyn Component>,
-  // Serialization is obj-safe i think?
 }
 
 impl ComponentVtable {

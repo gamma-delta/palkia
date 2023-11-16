@@ -5,8 +5,8 @@ use serde::{
 };
 
 use crate::{
-  prelude::World, resource::Resource, vtablesathome::ResourceVtables,
-  world::storage::ResourceMap, ToTypeIdWrapper,
+  prelude::World, vtablesathome::ResourceVtables,
+  world::storage::ResourceMap,
 };
 
 use super::{ApplyDeserFn, ErasedSerWrapper};
