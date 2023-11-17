@@ -11,16 +11,18 @@ pub mod factory;
 use std::collections::BTreeMap;
 
 use blueprint::{BlueprintLibrary, BlueprintLookupError, BlueprintParseError};
-use factory::{ComponentFactory};
+use factory::ComponentFactory;
 
-
+use serde::de::DeserializeOwned;
 use smol_str::SmolStr;
 use thiserror::Error;
 
 use crate::{
   builder::EntityBuilder,
-  prelude::{Entity},
+  prelude::{Component, Entity},
 };
+
+use self::factory::SerdeComponentFactory;
 
 /// A library of blueprints and the ability to instantiate entities from them.
 ///
@@ -58,7 +60,6 @@ where
   }
 
   /// Convenience function to register a factory that just loads the thing with serde.
-  #[cfg(feature = "serde")]
   pub fn register_serde<C: DeserializeOwned + Component>(
     &mut self,
     name: &str,

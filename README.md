@@ -19,17 +19,9 @@ Here's an excert from [the blog post I wrote on it](https://www.petra-k.at/blog/
 
 Check out the [tests](https://github.com/gamma-delta/palkia/tree/main/tests) or [examples](https://github.com/gamma-delta/palkia/blob/main/examples/game.rs) for more, I guess.
 
-## Features
-
-- `serde` enables "convenient," "easy-to-use" wrappers for serializing and deserializing worlds. (Disabled by default.)
-
-... and possibly more to follow.
-
 ## Why is it called Palkia?
 
 I've been naming the helper crates for Foxfire after Pokemon, just because there's a lot of them and I don't want to spend tons of time coming up with names.
 I picked Palkia specifically because the crate provides a method of organizing data, and Palkia controls space.
 
 ---
-
-This crate is built alongside and for my W.I.P. roguelike [Foxfire](https://www.petra-k.at/foxfire).

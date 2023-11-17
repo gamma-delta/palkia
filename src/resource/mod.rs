@@ -107,7 +107,7 @@ macro_rules! manually_register_resource {
     $crate::__private::paste! {
       #[doc(hidden)]
       #[allow(non_snake_case)]
-      #[$crate::__private::distributed_slice(
+      #[$crate::__private::linkme::distributed_slice(
           $crate::__private::RESOURCE_REGISTRATORS
       )]
       fn [< secret_register_ $res_ty>]

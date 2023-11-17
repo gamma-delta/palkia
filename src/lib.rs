@@ -137,8 +137,8 @@ pub mod prelude {
 /// For the benefit of macros. No peeking!
 #[doc(hidden)]
 pub mod __private {
-  pub use ::paste::paste;
-  pub use linkme::distributed_slice;
+  pub use linkme;
+  pub use paste::paste;
 
   pub use crate::{
     callback::__private::*,
@@ -147,12 +147,12 @@ pub mod __private {
     vtablesathome::{ComponentVtable, ResourceVtable},
   };
 
-  #[distributed_slice]
+  #[linkme::distributed_slice]
   pub static COMPONENT_REGISTRATORS: [fn(
     ComponentRegistererErased,
   ) -> ComponentVtable];
 
-  #[distributed_slice]
+  #[linkme::distributed_slice]
   pub static RESOURCE_REGISTRATORS: [fn(
     ResourceRegistererErased,
   ) -> ResourceVtable];
