@@ -107,9 +107,11 @@ macro_rules! manually_register_resource {
     $crate::__private::paste! {
       #[doc(hidden)]
       #[allow(non_snake_case)]
-      #[$crate::__private::linkme::distributed_slice(
-          $crate::__private::RESOURCE_REGISTRATORS
+      #[palkia::__private::linkme::distributed_slice(
+          palkia::__private::RESOURCE_REGISTRATORS
       )]
+      // apparently there's this secret invocation
+      #[linkme(crate = palkia::__private::linkme)]
       fn [< secret_register_ $res_ty>]
         (regi: $crate::__private::ResourceRegistererErased)
         -> $crate::__private::ResourceVtable {

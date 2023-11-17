@@ -135,9 +135,12 @@ pub mod prelude {
 }
 
 /// For the benefit of macros. No peeking!
+// https://github.com/autometrics-dev/autometrics-rs/blob/main/autometrics/src/lib.rs
 #[doc(hidden)]
 pub mod __private {
-  pub use linkme;
+  pub mod linkme {
+    pub use linkme::*;
+  }
   pub use paste::paste;
 
   pub use crate::{
