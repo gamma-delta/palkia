@@ -8,7 +8,10 @@ pub use storage::EntityAssoc;
 use crossbeam::channel;
 
 use crate::{
-  access::{AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources},
+  access::{
+    AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
+    AccessSpawnEntities,
+  },
   builder::EntityBuilder,
   callback::CallbackWorldAccess,
   component::Component,
@@ -234,6 +237,12 @@ impl AccessResources for World {
 
   fn contains_resource<R: Resource>(&self) -> bool {
     self.resources.contains::<R>()
+  }
+}
+
+impl AccessSpawnEntities for World {
+  fn spawn_entity(&self) -> EntityBuilder {
+    self.lazy_spawn()
   }
 }
 

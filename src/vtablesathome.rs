@@ -18,6 +18,7 @@ pub(crate) type DeserializeFn<T> =
 ///
 /// Public only for the benefit of macros
 #[doc(hidden)]
+#[allow(private_interfaces)]
 pub struct ComponentVtable {
   pub tid: TypeIdWrapper,
   /// Used for ser/de, both from kdl and to disc
@@ -103,6 +104,7 @@ impl ComponentVtables {
     })
   }
 
+  #[allow(unused)]
   pub(crate) fn by_type<C>() -> &'static ComponentVtable
   where
     C: Component,

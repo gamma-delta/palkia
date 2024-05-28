@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 pub use storage::*;
 
 use downcast::{downcast, Any};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
   vtablesathome::{self, DeserializeFn, ResourceVtable},

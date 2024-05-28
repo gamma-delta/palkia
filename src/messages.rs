@@ -9,7 +9,7 @@ use crate::{
   entities::EntityLiveness,
   prelude::{
     AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
-    Component, Entity, EntityBuilder, Query, World,
+    AccessSpawnEntities, Component, Entity, EntityBuilder, Query, World,
   },
   resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
   world::{dispatch_inner, LazyUpdate},
@@ -185,5 +185,11 @@ impl<'w> AccessResources for ListenerWorldAccess<'w> {
 
   fn contains_resource<R: Resource>(&self) -> bool {
     self.world.contains_resource::<R>()
+  }
+}
+
+impl<'w> AccessSpawnEntities for ListenerWorldAccess<'w> {
+  fn spawn_entity(&self) -> EntityBuilder {
+    self.lazy_spawn()
   }
 }

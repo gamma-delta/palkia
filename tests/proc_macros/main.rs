@@ -1,3 +1,4 @@
+#![allow(unexpected_cfgs)] // allow below, rustc doesn't figure it out somehow
 #![cfg(feature = "derive")]
 
 use palkia::prelude::*;

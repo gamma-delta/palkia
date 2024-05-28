@@ -4,6 +4,7 @@
 //! generic over it as well.
 
 use crate::{
+  builder::EntityBuilder,
   entities::{Entity, EntityIter, EntityLiveness},
   messages::Message,
   query::Query,
@@ -73,4 +74,12 @@ pub trait AccessResources {
   ///
   /// This does not require any locking, and so cannot fail.
   fn contains_resource<R: Resource>(&self) -> bool;
+}
+
+/// Trait for accesses that can spawn entities.
+///
+/// This trait has an immutable reciever so it works on both listener
+/// accesses and worlds. So, you'll have to wait for a finalize for it to really be there.
+pub trait AccessSpawnEntities {
+  fn spawn_entity(&self) -> EntityBuilder;
 }

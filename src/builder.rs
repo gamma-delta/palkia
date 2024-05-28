@@ -5,7 +5,7 @@
 
 // should this go in the access module?
 
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 
 use crate::{
   prelude::{Component, Entity, ListenerWorldAccess, World},
@@ -199,6 +199,7 @@ impl EntityBuilderComponentTracker {
     Self::default()
   }
 
+  #[allow(unused)]
   pub(crate) fn insert<C: Component>(&mut self, component: C) -> Option<C> {
     self.insert_raw(Box::new(component)).map(|comp| {
       // SAFETY: type guards

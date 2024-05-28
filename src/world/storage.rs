@@ -141,6 +141,7 @@ impl EntityAssoc {
     Self { components }
   }
 
+  #[allow(unused)]
   pub(crate) fn empty() -> Self {
     Self {
       components: IndexMap::default(),

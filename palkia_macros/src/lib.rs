@@ -3,8 +3,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-  parse::Nothing, parse_macro_input, punctuated::Punctuated, DeriveInput,
-  Ident, Token,
+  parse_macro_input, punctuated::Punctuated, DeriveInput, Ident, Token,
 };
 
 /// Automagically inserts the `register_component!` macro call after this,

@@ -119,6 +119,7 @@ pub mod prelude {
   pub use crate::{
     access::{
       AccessDispatcher, AccessEntityStats, AccessQuery, AccessResources,
+      AccessSpawnEntities,
     },
     builder::EntityBuilder,
     callback::CallbackWorldAccess,

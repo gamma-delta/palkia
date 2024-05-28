@@ -43,10 +43,7 @@ impl<'w> Serialize for EntitiesSerWrapper<'w> {
     let mut map = serializer.serialize_map(Some(self.world.entities.len()))?;
     for entity in self.world.entities() {
       map.serialize_key(&entity)?;
-      let wrapper = &EntitySerWrapper {
-        entity,
-        world: self.world,
-      };
+      let wrapper = &EntitySerWrapper::new(self.world, entity);
       map.serialize_value(wrapper)?;
     }
     map.end()

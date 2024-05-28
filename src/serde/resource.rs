@@ -1,12 +1,11 @@
 use serde::{
   de::{MapAccess, Visitor},
-  ser::{SerializeMap, SerializeSeq},
+  ser::SerializeMap,
   Deserialize, Serialize, Serializer,
 };
 
 use crate::{
-  prelude::World, vtablesathome::ResourceVtables,
-  world::storage::ResourceMap,
+  prelude::World, vtablesathome::ResourceVtables, world::storage::ResourceMap,
 };
 
 use super::{ApplyDeserFn, ErasedSerWrapper};
