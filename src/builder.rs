@@ -104,6 +104,46 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     self.len() == 0
   }
 
+  /// If a component of the given type does not exist on this builder, insert it.
+  pub fn require<C: Component>(&mut self, component: C) {
+    if !self.has_component::<C>() {
+      self.insert(component);
+    }
+  }
+
+  /// If a component of the given type does not exist on this builder, lazily insert it.
+  /// This only invokes the creator function if it needs to, so you can do expensive work
+  /// only when needed.
+  pub fn require_with<C: Component, F: FnOnce() -> C>(
+    &mut self,
+    componentinator: F,
+  ) {
+    if !self.has_component::<C>() {
+      self.insert(componentinator());
+    }
+  }
+
+  /// If a component of the given type does not exist on this builder, insert it.
+  ///
+  /// Like [`require`], but returns `self` for chaining
+  pub fn required<C: Component>(mut self, component: C) -> Self {
+    self.require(component);
+    self
+  }
+
+  /// If a component of the given type does not exist on this builder, lazily insert it.
+  /// This only invokes the creator function if it needs to, so you can do expensive work
+  /// only when needed.
+  ///
+  /// Like [`require`], but returns `self` for chaining
+  pub fn required_with<C: Component, F: FnOnce() -> C>(
+    mut self,
+    componentinator: F,
+  ) -> Self {
+    self.require_with(componentinator);
+    self
+  }
+
   /// Consume this and insert the entity into the world, returning it to the caller.
   ///
   /// Note that if you *don't* call this, there will be panics.
@@ -160,6 +200,12 @@ impl<'a, 'w> EntityBuilder<'a, 'w> {
     let boxed = &mut self.tracker.components[*idx];
     // SAFETY: type guards
     Some(unsafe { boxed.downcast_mut().unwrap_unchecked() })
+  }
+
+  /// Returns if this builder contains the given component.
+  pub fn has_component<C: Component>(&self) -> bool {
+    let tid = TypeIdWrapper::of::<C>();
+    self.tracker.component_idxs.contains_key(&tid)
   }
 
   /// Create a new [`EntityBuilder`] from this one. It will be lazy or unlazy

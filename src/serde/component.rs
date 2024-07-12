@@ -1,13 +1,7 @@
-use serde::{
-  de::{Visitor},
-  ser::SerializeMap,
-  Deserialize, Serialize,
-};
+use serde::{de::Visitor, ser::SerializeMap, Deserialize, Serialize};
 
 use crate::{
-  prelude::{Component},
-  vtablesathome::{ComponentVtables},
-  ToTypeIdWrapper,
+  prelude::Component, vtablesathome::ComponentVtables, ToTypeIdWrapper,
 };
 
 use super::{ApplyDeserFn, ErasedSerWrapper};

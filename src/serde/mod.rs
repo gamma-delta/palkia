@@ -87,19 +87,12 @@ mod resource;
 
 use generational_arena::Arena;
 
-
-
-
-
 use serde::{
-  de::{DeserializeSeed},
-  Deserialize, Deserializer, Serialize, Serializer,
+  de::DeserializeSeed, Deserialize, Deserializer, Serialize, Serializer,
 };
 
 use crate::{
-  prelude::{World},
-  vtablesathome::DeserializeFn,
-  world::storage::{EntityStorage},
+  prelude::World, vtablesathome::DeserializeFn, world::storage::EntityStorage,
 };
 
 use self::{
