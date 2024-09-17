@@ -10,7 +10,7 @@ edition = "2021"
 
 license = "MIT"
 description = "Entity Component Message architecture a la Caves of Qud"
-repository = "https://www.github.com/gamma-delta/palkia"
+repository = "https://github.com/gamma-delta/palkia"
 keywords = ["gamedev"]
 categories = ["game-development"]
 
