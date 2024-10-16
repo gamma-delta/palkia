@@ -10,6 +10,7 @@ pub mod fabricator;
 pub mod messages;
 pub mod query;
 pub mod resource;
+pub mod util;
 pub mod world;
 
 mod vtablesathome;

@@ -3,7 +3,7 @@
 use std::marker::PhantomData;
 
 use downcast::{downcast, Any};
-use serde::{de::DeserializeOwned, Serialize};
+use serde::de::DeserializeOwned;
 
 use crate::{
   callback::CallbackWorldAccess,
@@ -35,7 +35,7 @@ pub struct ComponentRegisterer<C: Component> {
 
 impl<C> ComponentRegisterer<C>
 where
-  C: Component + Serialize + DeserializeOwned,
+  C: Component + DeserializeOwned,
 {
   /// Tell the world to send the given type of message to this component to be handled with read access.
   pub fn handle_read<M: Message>(
