@@ -339,10 +339,10 @@ impl Diagnostic for BlueprintParseError {
       severity  -> Option<Severity>;
       help -> Option<Box<dyn Display + 'a>>;
       url -> Option<Box<dyn Display + 'a>>;
-      source_code -> Option<&dyn SourceCode>;
-      labels -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>>;
+      source_code -> Option<&'a dyn SourceCode>;
+      labels -> Option<Box<dyn Iterator<Item = LabeledSpan> + 'a>>;
       related -> Option<Box<dyn Iterator<Item = &'a dyn Diagnostic> + 'a>>;
-      diagnostic_source -> Option<&dyn Diagnostic>
+      diagnostic_source -> Option<&'a dyn Diagnostic>
   }
 }
 

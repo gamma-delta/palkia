@@ -3,46 +3,14 @@
 use crate::{
   access::{AccessEntityStats, AccessQuery, AccessResources},
   entities::EntityLiveness,
-  prelude::{Entity, Query, World},
+  prelude::{Component, Entity, Query, World},
   resource::{ReadResource, Resource, ResourceLookupError, WriteResource},
 };
 
-#[doc(hidden)]
-pub mod __private {
-  use crate::prelude::{Component, Entity};
-
-  use super::CallbackWorldAccess;
-
-  pub type OnCreateCallback =
-    Box<dyn Fn(&dyn Component, Entity, &CallbackWorldAccess) + Send + Sync>;
-  pub type OnRemoveCallback =
-    Box<dyn Fn(Box<dyn Component>, Entity, &CallbackWorldAccess) + Send + Sync>;
-
-  pub enum Callbacks {
-    Create(OnCreateCallback),
-    Remove(OnRemoveCallback),
-    Both(OnCreateCallback, OnRemoveCallback),
-  }
-}
-pub(crate) use __private::*;
-
-impl Callbacks {
-  pub fn get_create(&self) -> Option<&OnCreateCallback> {
-    match self {
-      Callbacks::Create(it) => Some(it),
-      Callbacks::Remove(_) => None,
-      Callbacks::Both(it, _) => Some(it),
-    }
-  }
-
-  pub fn get_remove(&self) -> Option<&OnRemoveCallback> {
-    match self {
-      Callbacks::Create(_) => None,
-      Callbacks::Remove(it) => Some(it),
-      Callbacks::Both(_, it) => Some(it),
-    }
-  }
-}
+pub(crate) type OnCreateCallback =
+  Box<dyn Fn(&dyn Component, Entity, &CallbackWorldAccess) + Send + Sync>;
+pub(crate) type OnRemoveCallback =
+  Box<dyn Fn(&dyn Component, Entity, &CallbackWorldAccess) + Send + Sync>;
 
 /// Access you have to the world during a callback.
 ///

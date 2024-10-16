@@ -145,7 +145,6 @@ pub mod __private {
   pub use paste::paste;
 
   pub use crate::{
-    callback::__private::*,
     component::__private::*,
     resource::__private::*,
     vtablesathome::{ComponentVtable, ResourceVtable},

@@ -3,7 +3,7 @@
 use std::{any::Any, collections::BTreeMap, sync::OnceLock};
 
 use crate::{
-  callback::Callbacks,
+  callback::{OnCreateCallback, OnRemoveCallback},
   component::ComponentRegistererErased,
   messages::MsgHandlerInner,
   prelude::Component,
@@ -25,15 +25,10 @@ pub struct ComponentVtable {
   pub friendly_name: &'static str,
   /// Maps event types to msg handlers
   pub msg_table: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
-  pub callbacks: Option<Callbacks>,
+  pub create_cbs: Vec<OnCreateCallback>,
+  pub remove_cbs: Vec<OnRemoveCallback>,
 
   pub deser: DeserializeFn<dyn Component>,
-}
-
-impl ComponentVtable {
-  pub fn callbacks(&self) -> Option<&Callbacks> {
-    self.callbacks.as_ref()
-  }
 }
 
 /// Public only for the benefit of macros
@@ -47,9 +42,6 @@ pub struct ResourceVtable {
 
 pub(crate) fn default_friendly_type_name<T: Any>() -> &'static str {
   std::any::type_name::<T>()
-    .split("::")
-    .last()
-    .expect("somehow had a type with no name")
 }
 
 // todo these have a ton of duplicated code auauau

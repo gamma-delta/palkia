@@ -166,7 +166,7 @@ impl World {
 
     for (tid, comp) in self.entities.get(e).components() {
       let vtable = ComponentVtables::by_tid(*tid);
-      if let Some(cb) = vtable.callbacks().and_then(|vt| vt.get_create()) {
+      for cb in &vtable.create_cbs {
         // i am *pretty* sure this will never be locked?
         let comp = comp.try_read().unwrap();
         cb(comp.as_ref(), e, &access);
@@ -177,9 +177,10 @@ impl World {
     let access = CallbackWorldAccess::new(self);
     for (tid, comp) in comps.into_iter() {
       let vtable = ComponentVtables::by_tid(tid);
-      if let Some(cb) = vtable.callbacks().and_then(|vt| vt.get_remove()) {
-        let comp = comp.into_inner().unwrap();
-        cb(comp, e, &access);
+      for cb in &vtable.remove_cbs {
+        // i am *pretty* sure this will never be locked?
+        let comp = comp.try_read().unwrap();
+        cb(comp.as_ref(), e, &access);
       }
     }
   }

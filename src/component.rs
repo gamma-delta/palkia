@@ -1,12 +1,12 @@
 //! Data attachable to [entities](crate::entities::Entity) that control its behavior by listening to [messages](crate::messages::Message).
 
-use std::{any, marker::PhantomData};
+use std::marker::PhantomData;
 
 use downcast::{downcast, Any};
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::{
-  callback::{CallbackWorldAccess, Callbacks},
+  callback::CallbackWorldAccess,
   messages::{Message, MsgHandlerInner, MsgHandlerRead, MsgHandlerWrite},
   prelude::{Entity, ListenerWorldAccess},
   vtablesathome::{self, ComponentVtable, DeserializeFn},
@@ -16,8 +16,8 @@ use crate::{
 /// Something attached to an [`Entity`] that gives it its behavior.
 ///
 /// Components all have a "friendly name". This is the name used to read it from
-/// a blueprint, and used in ser/de as well. By default it is the last field in
-/// [`std::any::type_name`] (split on `::`).
+/// a blueprint, and used in ser/de as well. By default it is
+/// [`std::any::type_name`].
 pub trait Component: Any + erased_serde::Serialize {
   /// Register what message types this listens to and what it does with them.
   fn register(builder: ComponentRegisterer<Self>) -> ComponentRegisterer<Self>
@@ -113,12 +113,6 @@ where
     mut self,
     cb: fn(&C, Entity, &CallbackWorldAccess),
   ) -> Self {
-    if self.inner.create_cb.is_some() {
-      panic!(
-        "a create callback for {:?} already exists",
-        any::type_name::<C>()
-      );
-    }
     let clo = move |comp: &dyn Component,
                     e: Entity,
                     access: &CallbackWorldAccess| {
@@ -128,7 +122,7 @@ where
     };
     let clo = Box::new(clo);
 
-    self.inner.create_cb = Some(clo);
+    self.inner.create_cbs.push(clo);
     self
   }
 
@@ -144,24 +138,18 @@ where
   /// **NOTE THAT** the entity given in the callback will ALWAYS be dead.
   pub fn register_remove_callback(
     mut self,
-    cb: fn(C, Entity, &CallbackWorldAccess),
+    cb: fn(&C, Entity, &CallbackWorldAccess),
   ) -> Self {
-    if self.inner.remove_cb.is_some() {
-      panic!(
-        "a remove callback for {:?} already exists",
-        any::type_name::<C>()
-      );
-    }
-    let clo = move |comp: Box<dyn Component>,
+    let clo = move |comp: &dyn Component,
                     e: Entity,
                     access: &CallbackWorldAccess| {
       // SAFETY: this will only ever be called with a component of the right concrete type
-      let concrete_comp: C = unsafe { *comp.downcast().unwrap_unchecked() };
+      let concrete_comp: &C = unsafe { comp.downcast_ref().unwrap_unchecked() };
       cb(concrete_comp, e, access);
     };
     let clo = Box::new(clo);
 
-    self.inner.remove_cb = Some(clo);
+    self.inner.remove_cbs.push(clo);
     self
   }
 
@@ -187,13 +175,6 @@ where
       .friendly_name
       .unwrap_or_else(vtablesathome::default_friendly_type_name::<C>);
 
-    let callbacks = match (self.inner.create_cb, self.inner.remove_cb) {
-      (None, None) => None,
-      (None, Some(remove)) => Some(Callbacks::Remove(remove)),
-      (Some(create), None) => Some(Callbacks::Create(create)),
-      (Some(create), Some(remove)) => Some(Callbacks::Both(create, remove)),
-    };
-
     let deser = |deser: &mut dyn erased_serde::Deserializer| -> erased_serde::Result<Box<dyn Component>> {
       let this = C::deserialize(deser)?;
       Ok(Box::new(this) as _)
@@ -205,7 +186,8 @@ where
 
       friendly_name,
       msg_table: self.inner.handlers,
-      callbacks,
+      create_cbs: self.inner.create_cbs,
+      remove_cbs: self.inner.remove_cbs,
       deser,
     }
   }
@@ -226,16 +208,16 @@ pub mod __private {
     pub(crate) friendly_name: Option<&'static str>,
     /// Maps event types to their handlers.
     pub(crate) handlers: BTreeMap<TypeIdWrapper, MsgHandlerInner>,
-    pub(crate) create_cb: Option<OnCreateCallback>,
-    pub(crate) remove_cb: Option<OnRemoveCallback>,
+    pub(crate) create_cbs: Vec<OnCreateCallback>,
+    pub(crate) remove_cbs: Vec<OnRemoveCallback>,
   }
 
   impl ComponentRegistererErased {
     pub(crate) fn new() -> Self {
       Self {
         handlers: BTreeMap::new(),
-        create_cb: None,
-        remove_cb: None,
+        create_cbs: Vec::new(),
+        remove_cbs: Vec::new(),
         friendly_name: None,
       }
     }
